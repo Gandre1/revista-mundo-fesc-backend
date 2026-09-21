@@ -5,6 +5,7 @@ require('dotenv').config();
 const db = require('./config/db');
 const healthRoutes = require('./routes/healthRoutes');
 const authRoutes = require('./routes/authRoutes');
+const submissionRoutes = require('./routes/submissionRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -12,9 +13,9 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
-// Montar rutas de la API
 app.use('/api', healthRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/submissions', submissionRoutes);
 
 app.listen(PORT, async () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
