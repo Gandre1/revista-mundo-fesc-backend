@@ -26,4 +26,7 @@ router.post('/test-upload', upload.single('archivo'), (req, res) => {
   });
 });
 
+// Ruta para finalizar el envío de un artículo
+router.patch('/:id/finalize', submissionController.finalizeSubmission);
+
 module.exports = router;

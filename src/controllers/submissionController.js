@@ -42,3 +42,57 @@ exports.getMySubmissions = async (req, res) => {
     res.status(500).json({ message: 'Error interno al consultar los envíos.' });
   }
 };
+
+// Cambiar de borrador a enviado
+exports.finalizeSubmission = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Verificar que el borrador exista y pertenezca al usuario logueado
+    const [submissions] = await db.query(
+      'SELECT id, borrador FROM submissions WHERE id = ? AND autor_id = ?',
+      [id, req.user.id]
+    );
+
+    if (submissions.length === 0) {
+      return res.status(404).json({ message: 'Envío no encontrado o no tienes permiso para modificarlo.' });
+    }
+
+    const submission = submissions[0];
+
+    // Verificar si ya no es borrador
+    if (submission.borrador === 0 || submission.borrador === false) {
+      return res.status(400).json({ message: 'Este envío ya fue finalizado previamente.' });
+    }
+
+    // Verificar que tenga al menos un archivo cargado
+    const [files] = await db.query(
+      'SELECT id FROM submission_files WHERE submission_id = ?',
+      [id]
+    );
+
+    if (files.length === 0) {
+      return res.status(400).json({ 
+        message: 'No se puede finalizar el envío: debe adjuntar al menos un archivo (manuscrito).' 
+      });
+    }
+
+    // Actualizar el envío en la base de datos
+    const fechaActual = new Date();
+    await db.query(
+      `UPDATE submissions 
+       SET borrador = 0, estado = 'enviado', fecha_envio = ? 
+       WHERE id = ?`,
+      [fechaActual, id]
+    );
+
+    res.json({
+      message: '¡Envío finalizado exitosamente! El artículo ha sido recibido para evaluación.',
+      submission_id: id,
+      fecha_envio: fechaActual
+    });
+  } catch (error) {
+    console.error('Error al finalizar envío:', error);
+    res.status(500).json({ message: 'Error interno del servidor al finalizar el envío.' });
+  }
+};
