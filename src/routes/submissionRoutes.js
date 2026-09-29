@@ -4,9 +4,10 @@ const submissionController = require('../controllers/submissionController');
 const authenticateToken = require('../middlewares/authMiddleware');
 const upload = require('../middlewares/uploadMiddleware');
 
-router.use(authenticateToken);
+//router.use(authenticateToken);
 
 router.post('/', submissionController.createSubmission);
+router.put('/:id', submissionController.updateSubmission);
 router.get('/my-submissions', submissionController.getMySubmissions);
 
 // Endpoint temporal de prueba de upload

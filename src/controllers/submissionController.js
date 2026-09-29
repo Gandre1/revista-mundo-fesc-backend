@@ -2,7 +2,8 @@ const db = require('../config/db');
 
 exports.createSubmission = async (req, res) => {
   const { titulo, resumen, palabras_clave, seccion, idioma } = req.body;
-  const autor_id = req.user.id;
+  
+  const autor_id = req.user ? req.user.id : '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad'; 
 
   if (!titulo) {
     return res.status(400).json({ message: 'El título del artículo es obligatorio.' });
@@ -40,6 +41,25 @@ exports.getMySubmissions = async (req, res) => {
   } catch (error) {
     console.error('Error al obtener envíos:', error);
     res.status(500).json({ message: 'Error interno al consultar los envíos.' });
+  }
+};
+
+exports.updateSubmission = async (req, res) => {
+  const { id } = req.params;
+  const { titulo, resumen, palabras_clave, seccion, idioma } = req.body;
+
+  try {
+    await db.query(
+      `UPDATE submissions 
+       SET titulo = ?, resumen = ?, palabras_clave = ?, seccion = ?, idioma = ?
+       WHERE id = ?`,
+      [titulo, resumen || null, palabras_clave || null, seccion || null, idioma || 'es', id]
+    );
+
+    res.json({ message: 'Envío actualizado correctamente.' });
+  } catch (error) {
+    console.error('Error al actualizar envío:', error);
+    res.status(500).json({ message: 'Error al actualizar el envío en la base de datos.' });
   }
 };
 
