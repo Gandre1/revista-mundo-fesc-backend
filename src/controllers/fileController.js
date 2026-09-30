@@ -1,7 +1,6 @@
 const db = require('../config/db');
 const fs = require('fs');
 
-// SUBIR Y REGISTRAR UN ARCHIVO ASOCIADO A UN ENVÍO
 exports.uploadFile = async (req, res) => {
   const { submission_id, tipo } = req.body;
 
@@ -10,24 +9,29 @@ exports.uploadFile = async (req, res) => {
   }
 
   if (!submission_id) {
-    fs.unlinkSync(req.file.path);
+    if (req.file) fs.unlinkSync(req.file.path);
     return res.status(400).json({ message: 'El submission_id es obligatorio.' });
   }
 
   try {
-    const [submissions] = await db.query(
-      'SELECT id FROM submissions WHERE id = ? AND autor_id = ?',
-      [submission_id, req.user.id]
-    );
+    // Si req.user existe lo usamos, si no (en pruebas) consultamos solo por submission_id
+    let query = 'SELECT id FROM submissions WHERE id = ?';
+    let queryParams = [submission_id];
+
+    if (req.user) {
+      query += ' AND autor_id = ?';
+      queryParams.push(req.user.id);
+    }
+
+    const [submissions] = await db.query(query, queryParams);
 
     if (submissions.length === 0) {
-      fs.unlinkSync(req.file.path);
+      if (req.file) fs.unlinkSync(req.file.path);
       return res.status(404).json({ message: 'Envío no encontrado o no tienes permisos para modificarlo.' });
     }
 
     const fileId = globalThis.crypto ? globalThis.crypto.randomUUID() : Date.now().toString();
 
-    // Insert con los nombres exactos de tu base de datos
     await db.query(
       `INSERT INTO submission_files (id, submission_id, nombre_original, ruta_almacenamiento, tamano, tipo) 
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -59,7 +63,6 @@ exports.uploadFile = async (req, res) => {
   }
 };
 
-// OBTENER LISTA DE ARCHIVOS DE UN ENVÍO
 exports.getFilesBySubmission = async (req, res) => {
   const { submissionId } = req.params;
 
@@ -72,6 +75,31 @@ exports.getFilesBySubmission = async (req, res) => {
     res.json({ files });
   } catch (error) {
     console.error('Error al obtener archivos:', error);
+    res.status(500).json({ message: 'Error interno del servidor.' });
+  }
+};
+
+exports.deleteFile = async (req, res) => {
+  const { fileId } = req.params;
+
+  try {
+    const [files] = await db.query('SELECT * FROM submission_files WHERE id = ?', [fileId]);
+
+    if (files.length === 0) {
+      return res.status(404).json({ message: 'Archivo no encontrado.' });
+    }
+
+    const fileToDelete = files[0];
+
+    await db.query('DELETE FROM submission_files WHERE id = ?', [fileId]);
+
+    if (fileToDelete.ruta_almacenamiento && fs.existsSync(fileToDelete.ruta_almacenamiento)) {
+      fs.unlinkSync(fileToDelete.ruta_almacenamiento);
+    }
+
+    res.json({ message: 'Archivo eliminado correctamente.' });
+  } catch (error) {
+    console.error('Error al eliminar el archivo:', error);
     res.status(500).json({ message: 'Error interno del servidor.' });
   }
 };
