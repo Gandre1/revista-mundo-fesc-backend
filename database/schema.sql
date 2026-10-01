@@ -30,12 +30,13 @@ CREATE TABLE `authors` (
   `email` varchar(150) NOT NULL,
   `afiliacion` varchar(200) DEFAULT NULL,
   `pais` varchar(100) DEFAULT NULL,
+  `orcid` varchar(255) DEFAULT NULL,
   `es_corresponsal` tinyint(1) DEFAULT 0,
   `orden` int(11) DEFAULT 1,
   PRIMARY KEY (`id`),
   KEY `submission_id` (`submission_id`),
   CONSTRAINT `authors_ibfk_1` FOREIGN KEY (`submission_id`) REFERENCES `submissions` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -44,6 +45,7 @@ CREATE TABLE `authors` (
 
 LOCK TABLES `authors` WRITE;
 /*!40000 ALTER TABLE `authors` DISABLE KEYS */;
+INSERT INTO `authors` VALUES (1,'097fc120-a2ee-4b82-86eb-5ec2bbca1a81','Juan','Perez','J_Perez@fesc.edu.co','Universidad FESC','Colombia',NULL,0,2),(2,'9f7f72cf-97d5-4411-95a2-fd5925d33b31','Carlos','Mendoza','cmendoza@fesc.edu.co','Universidad FESC','Colombia',NULL,0,2),(5,'4fbfc52f-e8ac-4275-b2f0-403255d98e13','Jaime','Gomez','J_Gomez@Prueba.com','FESC','Colombia','0000-0000-0000-0000',1,2);
 /*!40000 ALTER TABLE `authors` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -65,7 +67,7 @@ CREATE TABLE `submission_files` (
   PRIMARY KEY (`id`),
   KEY `submission_id` (`submission_id`),
   CONSTRAINT `submission_files_ibfk_1` FOREIGN KEY (`submission_id`) REFERENCES `submissions` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4783 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -74,6 +76,7 @@ CREATE TABLE `submission_files` (
 
 LOCK TABLES `submission_files` WRITE;
 /*!40000 ALTER TABLE `submission_files` DISABLE KEYS */;
+INSERT INTO `submission_files` VALUES (1,'097fc120-a2ee-4b82-86eb-5ec2bbca1a81','prueba3.docx','uploads\\archivo-1790177084882-633271034.docx',91399,'manuscrito','2026-09-23 15:24:44'),(9,'9f7f72cf-97d5-4411-95a2-fd5925d33b31','prueba3.docx','uploads\\archivo-1790361689416-571954623.docx',91399,'manuscrito','2026-09-25 18:41:29'),(95,'4fbfc52f-e8ac-4275-b2f0-403255d98e13','Prueba.docx','uploads\\archivo-1790798974874-486549006.docx',13327,'manuscrito','2026-09-30 20:09:34');
 /*!40000 ALTER TABLE `submission_files` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -115,6 +118,7 @@ CREATE TABLE `submissions` (
 
 LOCK TABLES `submissions` WRITE;
 /*!40000 ALTER TABLE `submissions` DISABLE KEYS */;
+INSERT INTO `submissions` VALUES ('097fc120-a2ee-4b82-86eb-5ec2bbca1a81','Estudio sobre Inteligencia Artificial aplicada a Revistas Académicas','Resumen técnico de la investigación...','IA, Web, Software','Investigación','es','enviado',0,1,NULL,NULL,'7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad',NULL,'2026-09-24 16:08:39','2026-09-21 20:31:20','2026-09-24 16:08:39'),('4fbfc52f-e8ac-4275-b2f0-403255d98e13','Titulo Prueba','Prueba Resumen','Prueba, Dos','Artículos Originales','Español','Nuevo',1,1,NULL,NULL,'7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad',NULL,NULL,'2026-09-30 19:54:38','2026-09-30 19:54:56'),('9f7f72cf-97d5-4411-95a2-fd5925d33b31','Estudio de Impacto de Software Libre en la Educación Superior','Este artículo analiza la adopción de herramientas Open Source en entornos académicos...','software libre, educacion, tecnologia','Artículos de Investigación','es','enviado',0,1,NULL,NULL,'7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad',NULL,'2026-09-25 18:42:47','2026-09-25 18:39:19','2026-09-25 18:42:47');
 /*!40000 ALTER TABLE `submissions` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -149,6 +153,7 @@ CREATE TABLE `users` (
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
+INSERT INTO `users` VALUES ('7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad','Andres','Pérez','autor@fesc.edu.co','$2b$10$r4ug89YiQ6z4qpd4l9RXTuscSQ6JigXph4DB.3IKfUeKk8NCmcLvq','author','Universidad FESC','Colombia','0000-0002-1825-0097',1,'2026-09-18 14:04:06','2026-09-28 19:42:15');
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -165,4 +170,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-09-15 17:09:53
+-- Dump completed on 2026-10-01 15:59:59
