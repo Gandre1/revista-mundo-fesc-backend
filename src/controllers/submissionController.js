@@ -46,32 +46,65 @@ exports.getMySubmissions = async (req, res) => {
 
 exports.updateSubmission = async (req, res) => {
   const { id } = req.params;
-  const { titulo, resumen, palabras_clave, seccion, idioma } = req.body;
+  const { titulo, resumen, palabras_clave, seccion, idioma, comentarios_editor, referencias } = req.body;
+
+  // Tomamos el autor_id del usuario autenticado o del valor fallback de desarrollo
+  const autor_id = req.user ? req.user.id : '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad';
 
   try {
-    await db.query(
+    const keywordsFormatted = Array.isArray(palabras_clave) 
+      ? palabras_clave.join(', ') 
+      : (palabras_clave || null);
+
+    const [result] = await db.query(
       `UPDATE submissions 
-       SET titulo = ?, resumen = ?, palabras_clave = ?, seccion = ?, idioma = ?
-       WHERE id = ?`,
-      [titulo, resumen || null, palabras_clave || null, seccion || null, idioma || 'es', id]
+       SET titulo = ?, 
+           resumen = ?, 
+           palabras_clave = ?, 
+           seccion = ?, 
+           idioma = ?, 
+           comentarios_editor = ?, 
+           referencias = ?
+       WHERE id = ? AND autor_id = ?`,
+      [
+        titulo || 'Borrador sin título', 
+        resumen || null, 
+        keywordsFormatted, 
+        seccion || null, 
+        idioma || 'es', 
+        comentarios_editor || null, 
+        referencias || null, 
+        id, 
+        autor_id
+      ]
     );
 
-    res.json({ message: 'Envío actualizado correctamente.' });
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Envío no encontrado o no tienes permiso para actualizarlo.' });
+    }
+
+    return res.json({ 
+      message: 'Envío actualizado correctamente.',
+      submissionId: id 
+    });
   } catch (error) {
-    console.error('Error al actualizar envío:', error);
-    res.status(500).json({ message: 'Error al actualizar el envío en la base de datos.' });
+    console.error('Error exacto en la consulta UPDATE MySQL:', error);
+    return res.status(500).json({ 
+      message: 'Error al actualizar el envío en la base de datos.', 
+      sqlError: error.message 
+    });
   }
 };
 
-// Cambiar de borrador a enviado
 exports.finalizeSubmission = async (req, res) => {
   const { id } = req.params;
 
+  const autor_id = req.user ? req.user.id : '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad';
+
   try {
-    // Verificar que el borrador exista y pertenezca al usuario logueado
     const [submissions] = await db.query(
       'SELECT id, borrador FROM submissions WHERE id = ? AND autor_id = ?',
-      [id, req.user.id]
+      [id, autor_id]
     );
 
     if (submissions.length === 0) {
@@ -80,12 +113,10 @@ exports.finalizeSubmission = async (req, res) => {
 
     const submission = submissions[0];
 
-    // Verificar si ya no es borrador
     if (submission.borrador === 0 || submission.borrador === false) {
       return res.status(400).json({ message: 'Este envío ya fue finalizado previamente.' });
     }
 
-    // Verificar que tenga al menos un archivo cargado
     const [files] = await db.query(
       'SELECT id FROM submission_files WHERE submission_id = ?',
       [id]
@@ -97,7 +128,6 @@ exports.finalizeSubmission = async (req, res) => {
       });
     }
 
-    // Actualizar el envío en la base de datos
     const fechaActual = new Date();
     await db.query(
       `UPDATE submissions 
@@ -106,13 +136,16 @@ exports.finalizeSubmission = async (req, res) => {
       [fechaActual, id]
     );
 
-    res.json({
+    return res.json({
       message: '¡Envío finalizado exitosamente! El artículo ha sido recibido para evaluación.',
       submission_id: id,
       fecha_envio: fechaActual
     });
   } catch (error) {
     console.error('Error al finalizar envío:', error);
-    res.status(500).json({ message: 'Error interno del servidor al finalizar el envío.' });
+    return res.status(500).json({ 
+      message: 'Error interno del servidor al finalizar el envío.',
+      errorDetail: error.message 
+    });
   }
 };
