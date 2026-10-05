@@ -28,19 +28,86 @@ exports.createSubmission = async (req, res) => {
   }
 };
 
+// Obtener todos los envíos del autor autenticado (o fallback de dev)
 exports.getMySubmissions = async (req, res) => {
-  const autor_id = req.user.id;
+  const autor_id = req.user ? req.user.id : '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad';
 
   try {
     const [submissions] = await db.query(
-      'SELECT id, titulo, seccion, estado, borrador, fecha_envio, created_at FROM submissions WHERE autor_id = ? ORDER BY created_at DESC',
+      `SELECT 
+        s.id, 
+        s.titulo, 
+        s.seccion, 
+        s.estado, 
+        s.borrador, 
+        s.paso_wizard,
+        s.fecha_envio, 
+        s.created_at,
+        (SELECT COUNT(*) FROM submission_files sf WHERE sf.submission_id = s.id) AS total_archivos,
+        (SELECT COUNT(*) FROM authors a WHERE a.submission_id = s.id) AS total_autores
+       FROM submissions s
+       WHERE s.autor_id = ? 
+       ORDER BY s.created_at DESC`,
       [autor_id]
     );
 
     res.json({ submissions });
   } catch (error) {
-    console.error('Error al obtener envíos:', error);
-    res.status(500).json({ message: 'Error interno al consultar los envíos.' });
+    console.error('Error al obtener envíos del autor:', error);
+    res.status(500).json({ message: 'Error interno al consultar los envíos.', errorDetail: error.message });
+  }
+};
+
+// Obtener el detalle completo de un envío específico por ID
+exports.getSubmissionById = async (req, res) => {
+  const { id } = req.params;
+  const autor_id = req.user ? req.user.id : '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad';
+
+  try {
+    // 1. Obtener datos principales de la postulación
+    const [submissions] = await db.query(
+      `SELECT id, titulo, resumen, palabras_clave, seccion, idioma, 
+              comentarios_editor, referencias, estado, borrador, paso_wizard, fecha_envio, created_at 
+       FROM submissions 
+       WHERE id = ? AND autor_id = ?`,
+      [id, autor_id]
+    );
+
+    if (submissions.length === 0) {
+      return res.status(404).json({ message: 'Envío no encontrado o no tienes permiso para acceder.' });
+    }
+
+    const submission = submissions[0];
+
+    // 2. Obtener archivos adjuntos (usando ruta_almacenamiento y fecha_subida)
+    const [files] = await db.query(
+      `SELECT id, nombre_original, tamano, tipo, ruta_almacenamiento, fecha_subida 
+       FROM submission_files 
+       WHERE submission_id = ? 
+       ORDER BY fecha_subida ASC`,
+      [id]
+    );
+
+    // 3. Obtener colaboradores/autores
+    const [authors] = await db.query(
+      `SELECT id, nombre, apellidos, email, afiliacion, pais, orcid, es_corresponsal, orden 
+       FROM authors 
+       WHERE submission_id = ? 
+       ORDER BY orden ASC`,
+      [id]
+    );
+
+    // Respuesta consolidada
+    res.json({
+      submission: {
+        ...submission,
+        archivos: files,
+        autores: authors
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener detalle del envío:', error);
+    res.status(500).json({ message: 'Error interno al consultar el detalle del envío.', errorDetail: error.message });
   }
 };
 

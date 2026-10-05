@@ -7,6 +7,5 @@ router.use(authenticateToken);
 
 router.get('/profile', userController.getProfile);
 router.put('/profile', userController.updateProfile);
-router.get('/submissions/:id', userController.getSubmissionById);
 
 module.exports = router;

@@ -7,8 +7,9 @@ const upload = require('../middlewares/uploadMiddleware');
 //router.use(authenticateToken);
 
 router.post('/', submissionController.createSubmission);
-router.put('/:id', submissionController.updateSubmission);
 router.get('/my-submissions', submissionController.getMySubmissions);
+router.get('/:id', submissionController.getSubmissionById);
+router.put('/:id', submissionController.updateSubmission);
 
 // Endpoint temporal de prueba de upload
 router.post('/test-upload', upload.single('archivo'), (req, res) => {
