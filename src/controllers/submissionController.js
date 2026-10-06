@@ -58,26 +58,153 @@ exports.getMySubmissions = async (req, res) => {
   }
 };
 
+exports.getAllSubmissions = async (req, res) => {
+  try {
+    const [submissions] = await db.query(
+      `SELECT
+        s.id,
+        s.titulo,
+        s.resumen,
+        s.seccion,
+        s.estado,
+        s.borrador,
+        s.paso_wizard,
+        s.fecha_envio,
+        s.created_at,
+        s.editor_id,
+        CONCAT_WS(' ', author.nombre, author.apellidos) AS autor_nombre,
+        author.email AS autor_email,
+        CONCAT_WS(' ', editor.nombre, editor.apellidos) AS editor_nombre,
+        (SELECT COUNT(*) FROM submission_files sf WHERE sf.submission_id = s.id) AS total_archivos,
+        (SELECT COUNT(*) FROM authors a WHERE a.submission_id = s.id) AS total_autores
+       FROM submissions s
+       JOIN users author ON author.id = s.autor_id
+       LEFT JOIN users editor ON editor.id = s.editor_id
+       ORDER BY s.created_at DESC`
+    );
+
+    return res.json({ submissions });
+  } catch (error) {
+    console.error('Error al obtener todos los envíos:', error);
+    return res.status(500).json({ message: 'Error interno al consultar los envíos.' });
+  }
+};
+
+exports.getEditors = async (req, res) => {
+  try {
+    const [editors] = await db.query(
+      `SELECT id, nombre, apellidos, email
+       FROM users
+       WHERE role = 'editor'
+       ORDER BY apellidos ASC, nombre ASC`
+    );
+
+    return res.json({ editors });
+  } catch (error) {
+    console.error('Error al consultar editores:', error);
+    return res.status(500).json({ message: 'Error interno al consultar los editores.' });
+  }
+};
+
+exports.updateEditorialFields = async (req, res) => {
+  const { id } = req.params;
+  const { estado, editor_id } = req.body;
+  const updates = [];
+  const values = [];
+
+  try {
+    if (Object.prototype.hasOwnProperty.call(req.body, 'estado')) {
+      const statusMap = {
+        nuevo: 'Nuevo',
+        enviado: 'enviado',
+        submitted: 'enviado',
+        en_revision: 'en_revision',
+        'en revisión': 'en_revision',
+        under_review: 'en_revision',
+        revisiones_requeridas: 'revisiones_requeridas',
+        'revisiones requeridas': 'revisiones_requeridas',
+        revisions_required: 'revisiones_requeridas',
+        aceptado: 'aceptado',
+        accepted: 'aceptado',
+        rechazado: 'rechazado',
+        rejected: 'rechazado',
+        publicado: 'publicado',
+        published: 'publicado',
+      };
+      const normalizedStatus = typeof estado === 'string' ? estado.toLowerCase() : '';
+      if (!Object.prototype.hasOwnProperty.call(statusMap, normalizedStatus)) {
+        return res.status(400).json({ message: 'El estado indicado no es válido.' });
+      }
+      updates.push('estado = ?');
+      values.push(statusMap[normalizedStatus]);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'editor_id')) {
+      if (editor_id !== null && (typeof editor_id !== 'string' || !editor_id.trim())) {
+        return res.status(400).json({ message: 'El identificador del editor no es válido.' });
+      }
+
+      if (editor_id !== null) {
+        const [editors] = await db.query(
+          "SELECT id FROM users WHERE id = ? AND role = 'editor'",
+          [editor_id]
+        );
+        if (editors.length === 0) {
+          return res.status(400).json({ message: 'El usuario seleccionado no es un editor válido.' });
+        }
+      }
+
+      updates.push('editor_id = ?');
+      values.push(editor_id);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ message: 'No se indicaron cambios editoriales.' });
+    }
+
+    const [submissions] = await db.query('SELECT id FROM submissions WHERE id = ?', [id]);
+    if (submissions.length === 0) {
+      return res.status(404).json({ message: 'Envío no encontrado.' });
+    }
+
+    values.push(id);
+    await db.query(`UPDATE submissions SET ${updates.join(', ')} WHERE id = ?`, values);
+    return res.json({ message: 'Cambios editoriales guardados correctamente.', submissionId: id });
+  } catch (error) {
+    console.error('Error al actualizar los datos editoriales:', error);
+    return res.status(500).json({ message: 'Error interno al actualizar los datos editoriales.' });
+  }
+};
+
 // Obtener el detalle completo de un envío específico por ID
 exports.getSubmissionById = async (req, res) => {
   const { id } = req.params;
-  const autor_id = req.user ? req.user.id : '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad';
 
   try {
     // 1. Obtener datos principales de la postulación
     const [submissions] = await db.query(
-      `SELECT id, titulo, resumen, palabras_clave, seccion, idioma, 
-              comentarios_editor, referencias, estado, borrador, paso_wizard, fecha_envio, created_at 
-       FROM submissions 
-       WHERE id = ? AND autor_id = ?`,
-      [id, autor_id]
+      `SELECT s.id, s.autor_id, s.titulo, s.resumen, s.palabras_clave, s.seccion, s.idioma,
+              s.comentarios_editor, s.referencias, s.estado, s.borrador, s.paso_wizard,
+              s.fecha_envio, s.created_at, s.editor_id,
+              CONCAT_WS(' ', author.nombre, author.apellidos) AS autor_nombre,
+              author.email AS autor_email,
+              CONCAT_WS(' ', editor.nombre, editor.apellidos) AS editor_nombre
+       FROM submissions s
+       JOIN users author ON author.id = s.autor_id
+       LEFT JOIN users editor ON editor.id = s.editor_id
+       WHERE s.id = ?`,
+      [id]
     );
 
     if (submissions.length === 0) {
-      return res.status(404).json({ message: 'Envío no encontrado o no tienes permiso para acceder.' });
+      return res.status(404).json({ message: 'Envío no encontrado.' });
     }
 
     const submission = submissions[0];
+    const isEditorialUser = ['admin', 'editor'].includes(req.user.role);
+    if (!isEditorialUser && submission.autor_id !== req.user.id) {
+      return res.status(404).json({ message: 'Envío no encontrado.' });
+    }
 
     // 2. Obtener archivos adjuntos (usando ruta_almacenamiento y fecha_subida)
     const [files] = await db.query(

@@ -5,6 +5,21 @@ module.exports = (req, res, next) => {
   const token = authHeader && authHeader.split(' ')[1]; // Formato: "Bearer TOKEN"
 
   if (!token) {
+    const devRole = req.headers['x-dev-role'];
+    const mockAuthEnabled =
+      process.env.NODE_ENV !== 'production' &&
+      process.env.DEV_AUTH_BYPASS === 'true';
+    const allowedRoles = ['admin', 'editor', 'reviewer', 'author'];
+
+    if (mockAuthEnabled && allowedRoles.includes(devRole)) {
+      req.user = {
+        id: process.env.DEV_AUTH_USER_ID || '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad',
+        role: devRole,
+        email: `mock-${devRole}@localhost`,
+      };
+      return next();
+    }
+
     return res.status(401).json({ message: 'Acceso denegado. No se proporcionó un token de autenticación.' });
   }
 

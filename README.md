@@ -65,7 +65,12 @@ DB_PORT=3306
 
 JWT_SECRET=fesc_secret_key_2026_revista_mundo
 JWT_EXPIRES_IN=24h
+DEV_AUTH_BYPASS=false
 ```
+
+Para ver los artículos de la base de datos mientras el frontend usa los usuarios mock de ejemplo, configura `DEV_AUTH_BYPASS=true` únicamente en tu `.env` local y reinicia el backend. El rol seleccionado en el mock se envía como `X-Dev-Role`; el backend lo acepta solo fuera de producción y si la variable está habilitada. Por defecto, las consultas de autor usan el usuario de desarrollo de la base incluida en `database/schema.sql`; si tu base usa otro usuario, configura `DEV_AUTH_USER_ID` con un ID existente.
+
+No uses este modo en producción. Con un token JWT real, el backend ignora el rol mock y valida el token normalmente.
 
 ---
 

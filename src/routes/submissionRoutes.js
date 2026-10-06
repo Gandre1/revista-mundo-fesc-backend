@@ -6,10 +6,20 @@ const upload = require('../middlewares/uploadMiddleware');
 
 //router.use(authenticateToken);
 
-router.post('/', submissionController.createSubmission);
-router.get('/my-submissions', submissionController.getMySubmissions);
-router.get('/:id', submissionController.getSubmissionById);
-router.put('/:id', submissionController.updateSubmission);
+const requireEditorialRole = (req, res, next) => {
+  if (!['admin', 'editor'].includes(req.user.role)) {
+    return res.status(403).json({ message: 'No tienes permisos para gestionar envíos.' });
+  }
+  next();
+};
+
+router.post('/', authenticateToken, submissionController.createSubmission);
+router.get('/', authenticateToken, requireEditorialRole, submissionController.getAllSubmissions);
+router.get('/my-submissions', authenticateToken, submissionController.getMySubmissions);
+router.get('/editors', authenticateToken, requireEditorialRole, submissionController.getEditors);
+router.get('/:id', authenticateToken, submissionController.getSubmissionById);
+router.put('/:id', authenticateToken, submissionController.updateSubmission);
+router.patch('/:id/editorial', authenticateToken, requireEditorialRole, submissionController.updateEditorialFields);
 
 // Endpoint temporal de prueba de upload
 router.post('/test-upload', upload.single('archivo'), (req, res) => {
@@ -29,6 +39,6 @@ router.post('/test-upload', upload.single('archivo'), (req, res) => {
 });
 
 // Ruta para finalizar el envío de un artículo
-router.patch('/:id/finalize', submissionController.finalizeSubmission);
+router.patch('/:id/finalize', authenticateToken, submissionController.finalizeSubmission);
 
 module.exports = router;

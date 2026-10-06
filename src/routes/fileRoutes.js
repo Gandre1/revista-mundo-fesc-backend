@@ -6,10 +6,12 @@ const upload = require('../middlewares/uploadMiddleware');
 
 // router.use(authenticateToken);
 
-router.post('/upload', upload.single('archivo'), fileController.uploadFile);
+router.post('/upload', authenticateToken, upload.single('archivo'), fileController.uploadFile);
 
-router.get('/submission/:submissionId', fileController.getFilesBySubmission);
+router.get('/submission/:submissionId', authenticateToken, fileController.getFilesBySubmission);
 
-router.delete('/:fileId', fileController.deleteFile);
+router.get('/:fileId/content', authenticateToken, fileController.getFileContent);
+
+router.delete('/:fileId', authenticateToken, fileController.deleteFile);
 
 module.exports = router;
