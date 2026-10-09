@@ -1,4 +1,6 @@
 const db = require('../config/db');
+const fs = require('fs');
+const path = require('path');
 
 exports.createSubmission = async (req, res) => {
   const { titulo, resumen, palabras_clave, seccion, idioma } = req.body;
@@ -287,6 +289,84 @@ exports.updateSubmission = async (req, res) => {
       message: 'Error al actualizar el envío en la base de datos.', 
       sqlError: error.message 
     });
+  }
+};
+
+exports.deleteDraft = async (req, res) => {
+  const { id } = req.params;
+  let connection;
+  let transactionStarted = false;
+
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    transactionStarted = true;
+
+    const [submissions] = await connection.query(
+      'SELECT id, autor_id, borrador FROM submissions WHERE id = ? FOR UPDATE',
+      [id]
+    );
+
+    if (submissions.length === 0 || submissions[0].autor_id !== req.user.id) {
+      await connection.rollback();
+      transactionStarted = false;
+      return res.status(404).json({ message: 'Borrador no encontrado.' });
+    }
+
+    if (!submissions[0].borrador) {
+      await connection.rollback();
+      transactionStarted = false;
+      return res.status(409).json({ message: 'Solo se pueden eliminar artículos que aún están en borrador.' });
+    }
+
+    const [files] = await connection.query(
+      'SELECT ruta_almacenamiento FROM submission_files WHERE submission_id = ?',
+      [id]
+    );
+
+    const [result] = await connection.query(
+      'DELETE FROM submissions WHERE id = ? AND autor_id = ? AND borrador = TRUE',
+      [id, req.user.id]
+    );
+
+    if (result.affectedRows !== 1) {
+      await connection.rollback();
+      transactionStarted = false;
+      return res.status(409).json({ message: 'El borrador cambió de estado y no pudo eliminarse.' });
+    }
+
+    await connection.commit();
+    transactionStarted = false;
+
+    const uploadsDirectory = path.resolve(process.cwd(), 'uploads');
+    for (const file of files) {
+      const storedPath = file.ruta_almacenamiento.replace(/[\\/]+/g, path.sep);
+      const filePath = path.resolve(process.cwd(), storedPath);
+      const relativePath = path.relative(uploadsDirectory, filePath);
+
+      if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+        console.error(`Se omitió la limpieza de una ruta inválida del borrador ${id}.`);
+        continue;
+      }
+
+      try {
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (error) {
+        console.error(`No fue posible limpiar un archivo del borrador ${id}:`, error);
+      }
+    }
+
+    return res.json({ message: 'Borrador eliminado correctamente.' });
+  } catch (error) {
+    if (transactionStarted) {
+      await connection.rollback();
+    }
+    console.error('Error al eliminar borrador:', error);
+    return res.status(500).json({ message: 'Error interno al eliminar el borrador.' });
+  } finally {
+    connection?.release();
   }
 };
 

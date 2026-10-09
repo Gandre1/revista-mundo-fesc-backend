@@ -19,6 +19,7 @@ router.get('/my-submissions', authenticateToken, submissionController.getMySubmi
 router.get('/editors', authenticateToken, requireEditorialRole, submissionController.getEditors);
 router.get('/:id', authenticateToken, submissionController.getSubmissionById);
 router.put('/:id', authenticateToken, submissionController.updateSubmission);
+router.delete('/:id', authenticateToken, submissionController.deleteDraft);
 router.patch('/:id/editorial', authenticateToken, requireEditorialRole, submissionController.updateEditorialFields);
 
 // Endpoint temporal de prueba de upload

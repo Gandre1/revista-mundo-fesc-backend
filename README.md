@@ -115,6 +115,7 @@ http://localhost:4000
 | ------ | ------------------------------- | --------------------------------------------------- |
 | POST   | /api/submissions                | Crear borrador de artículo (requiere JWT)           |
 | GET    | /api/submissions/my-submissions | Listar borradores del autor logueado (requiere JWT) |
+| DELETE | /api/submissions/:id            | Eliminar un borrador propio (requiere JWT)          |
 
 ---
 
