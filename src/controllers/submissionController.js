@@ -71,16 +71,19 @@ exports.getAllSubmissions = async (req, res) => {
         s.estado,
         s.borrador,
         s.paso_wizard,
+        s.palabras_clave,
+        s.idioma,
         s.fecha_envio,
         s.created_at,
         s.editor_id,
         CONCAT_WS(' ', author.nombre, author.apellidos) AS autor_nombre,
         author.email AS autor_email,
         CONCAT_WS(' ', editor.nombre, editor.apellidos) AS editor_nombre,
+        editor.email AS editor_email,
         (SELECT COUNT(*) FROM submission_files sf WHERE sf.submission_id = s.id) AS total_archivos,
         (SELECT COUNT(*) FROM authors a WHERE a.submission_id = s.id) AS total_autores
        FROM submissions s
-       JOIN users author ON author.id = s.autor_id
+       LEFT JOIN users author ON author.id = s.autor_id
        LEFT JOIN users editor ON editor.id = s.editor_id
        ORDER BY s.created_at DESC`
     );
@@ -108,14 +111,18 @@ exports.getEditors = async (req, res) => {
   }
 };
 
-exports.updateEditorialFields = async (req, res) => {
+const saveEditorialFields = async (req, res, fields = req.body) => {
   const { id } = req.params;
-  const { estado, editor_id } = req.body;
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+    return res.status(400).json({ message: 'El cuerpo de la solicitud debe ser un objeto JSON.' });
+  }
+
+  const { estado, editor_id } = fields;
   const updates = [];
   const values = [];
 
   try {
-    if (Object.prototype.hasOwnProperty.call(req.body, 'estado')) {
+    if (Object.prototype.hasOwnProperty.call(fields, 'estado')) {
       const statusMap = {
         nuevo: 'Nuevo',
         enviado: 'enviado',
@@ -123,6 +130,8 @@ exports.updateEditorialFields = async (req, res) => {
         en_revision: 'en_revision',
         'en revisión': 'en_revision',
         under_review: 'en_revision',
+        evaluado: 'evaluado',
+        evaluated: 'evaluado',
         revisiones_requeridas: 'revisiones_requeridas',
         'revisiones requeridas': 'revisiones_requeridas',
         revisions_required: 'revisiones_requeridas',
@@ -133,7 +142,7 @@ exports.updateEditorialFields = async (req, res) => {
         publicado: 'publicado',
         published: 'publicado',
       };
-      const normalizedStatus = typeof estado === 'string' ? estado.toLowerCase() : '';
+      const normalizedStatus = typeof estado === 'string' ? estado.trim().toLowerCase() : '';
       if (!Object.prototype.hasOwnProperty.call(statusMap, normalizedStatus)) {
         return res.status(400).json({ message: 'El estado indicado no es válido.' });
       }
@@ -141,7 +150,7 @@ exports.updateEditorialFields = async (req, res) => {
       values.push(statusMap[normalizedStatus]);
     }
 
-    if (Object.prototype.hasOwnProperty.call(req.body, 'editor_id')) {
+    if (Object.prototype.hasOwnProperty.call(fields, 'editor_id')) {
       if (editor_id !== null && (typeof editor_id !== 'string' || !editor_id.trim())) {
         return res.status(400).json({ message: 'El identificador del editor no es válido.' });
       }
@@ -171,11 +180,40 @@ exports.updateEditorialFields = async (req, res) => {
 
     values.push(id);
     await db.query(`UPDATE submissions SET ${updates.join(', ')} WHERE id = ?`, values);
-    return res.json({ message: 'Cambios editoriales guardados correctamente.', submissionId: id });
+    const [updatedSubmissions] = await db.query(
+      `SELECT s.id, s.estado, s.editor_id,
+              CONCAT_WS(' ', editor.nombre, editor.apellidos) AS editor_nombre
+       FROM submissions s
+       LEFT JOIN users editor ON editor.id = s.editor_id
+       WHERE s.id = ?`,
+      [id]
+    );
+
+    return res.status(200).json({
+      message: 'Cambios editoriales guardados correctamente.',
+      submissionId: id,
+      submission: updatedSubmissions[0],
+    });
   } catch (error) {
     console.error('Error al actualizar los datos editoriales:', error);
     return res.status(500).json({ message: 'Error interno al actualizar los datos editoriales.' });
   }
+};
+
+exports.updateEditorialFields = (req, res) => saveEditorialFields(req, res);
+
+exports.updateSubmissionStatus = (req, res) => {
+  const fields = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+    ? { estado: req.body.estado }
+    : req.body;
+  return saveEditorialFields(req, res, fields);
+};
+
+exports.assignSubmissionEditor = (req, res) => {
+  const fields = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+    ? { editor_id: req.body.editor_id }
+    : req.body;
+  return saveEditorialFields(req, res, fields);
 };
 
 // Obtener el detalle completo de un envío específico por ID
