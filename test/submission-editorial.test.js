@@ -6,8 +6,10 @@ const controllerPath = require.resolve('../src/controllers/submissionController'
 const state = {
   calls: [],
   editors: [{ id: 'editor-1' }],
+  reviewers: [{ id: 'reviewer-1' }],
   listRows: [],
   submissionExists: true,
+  reviewAssignment: null,
   submission: {
     id: 'submission-1',
     estado: 'enviado',
@@ -29,6 +31,14 @@ const db = {
       return [state.editors.filter((editor) => editor.id === values[0])];
     }
 
+    if (normalizedSql.includes("from users where id = ? and role = 'reviewer'")) {
+      return [state.reviewers.filter((reviewer) => reviewer.id === values[0])];
+    }
+
+    if (normalizedSql.includes("from users where role = 'reviewer'")) {
+      return [state.reviewers];
+    }
+
     if (normalizedSql === 'select id from submissions where id = ?') {
       return [state.submissionExists ? [{ id: values[0] }] : []];
     }
@@ -46,6 +56,15 @@ const db = {
 
     if (normalizedSql.startsWith('select s.id, s.estado, s.editor_id')) {
       return [[{ ...state.submission }]];
+    }
+
+    if (normalizedSql.startsWith('insert into submission_reviews')) {
+      state.reviewAssignment = {
+        submission_id: values[0],
+        reviewer_id: values[1],
+        fecha_limite: values[2],
+      };
+      return [{ affectedRows: 1 }];
     }
 
     throw new Error(`Consulta no contemplada en la prueba: ${normalizedSql}`);
@@ -66,8 +85,10 @@ Module._load = originalLoad;
 function resetState() {
   state.calls = [];
   state.editors = [{ id: 'editor-1' }];
+  state.reviewers = [{ id: 'reviewer-1' }];
   state.listRows = [];
   state.submissionExists = true;
+  state.reviewAssignment = null;
   state.submission = {
     id: 'submission-1',
     estado: 'enviado',
@@ -164,4 +185,56 @@ test('rejects non-editor assignments and reports missing submissions', async () 
   await controller.updateSubmissionStatus(request({ estado: 'aceptado' }), missingSubmissionResponse);
 
   assert.equal(missingSubmissionResponse.statusCode, 404);
+});
+
+test('returns the available reviewers', async () => {
+  resetState();
+  const res = response();
+
+  await controller.getReviewers({}, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.reviewers, state.reviewers);
+  assert.match(state.calls[0].sql, /where role = 'reviewer'/);
+});
+
+test('assigns a reviewer with a valid deadline', async () => {
+  resetState();
+  const res = response();
+
+  await controller.assignSubmissionReviewer(
+    request({ reviewer_id: 'reviewer-1', fecha_limite: '2026-11-20' }),
+    res
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.submissionId, 'submission-1');
+  assert.deepEqual(state.reviewAssignment, {
+    submission_id: 'submission-1',
+    reviewer_id: 'reviewer-1',
+    fecha_limite: '2026-11-20',
+  });
+});
+
+test('rejects invalid reviewer IDs and calendar dates', async () => {
+  resetState();
+  const invalidReviewerResponse = response();
+
+  await controller.assignSubmissionReviewer(
+    request({ reviewer_id: 'unknown', fecha_limite: '2026-11-20' }),
+    invalidReviewerResponse
+  );
+
+  assert.equal(invalidReviewerResponse.statusCode, 400);
+  assert.equal(state.reviewAssignment, null);
+
+  resetState();
+  const invalidDateResponse = response();
+  await controller.assignSubmissionReviewer(
+    request({ reviewer_id: 'reviewer-1', fecha_limite: '2026-02-30' }),
+    invalidDateResponse
+  );
+
+  assert.equal(invalidDateResponse.statusCode, 400);
+  assert.equal(state.calls.length, 0);
 });

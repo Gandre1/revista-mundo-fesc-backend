@@ -46,7 +46,8 @@ npm install
 revista_mundo_fesc
 ```
 
-5. Importa el archivo `schema.sql` ubicado en la raíz del proyecto para crear la estructura de tablas
+5. Importa el archivo `database/schema.sql` para crear la estructura de tablas
+6. Si la base de datos ya existe, ejecuta `database/migrations/001_create_submission_reviews.sql` para habilitar las asignaciones de revisores
 
 ---
 
@@ -119,6 +120,8 @@ http://localhost:4000
 | DELETE | /api/submissions/:id            | Eliminar un borrador propio (requiere JWT)          |
 | PATCH  | /api/submissions/:id/status     | Actualizar el estado editorial (admin/editor; JSON: `{"estado":"en_revision"}`) |
 | PATCH  | /api/submissions/:id/assign-editor | Asignar o desasignar editor (admin/editor; JSON: `{"editor_id":"<id>"}` o `null`) |
+| GET    | /api/submissions/reviewers      | Listar revisores disponibles (admin/editor) |
+| PATCH  | /api/submissions/:id/assign-reviewer | Asignar revisor y fecha límite (admin/editor; JSON: `{"reviewer_id":"<id>","fecha_limite":"AAAA-MM-DD"}`) |
 | PATCH  | /api/submissions/:id/editorial  | Actualizar estado y/o editor en una misma solicitud (admin/editor) |
 
 Las rutas editoriales responden con JSON y devuelven el envío actualizado. Un estado no válido o un editor inexistente produce `400`; un envío inexistente produce `404`.

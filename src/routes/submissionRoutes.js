@@ -17,12 +17,14 @@ router.post('/', authenticateToken, submissionController.createSubmission);
 router.get('/', authenticateToken, requireEditorialRole, submissionController.getAllSubmissions);
 router.get('/my-submissions', authenticateToken, submissionController.getMySubmissions);
 router.get('/editors', authenticateToken, requireEditorialRole, submissionController.getEditors);
+router.get('/reviewers', authenticateToken, requireEditorialRole, submissionController.getReviewers);
 router.get('/:id', authenticateToken, submissionController.getSubmissionById);
 router.put('/:id', authenticateToken, submissionController.updateSubmission);
 router.delete('/:id', authenticateToken, submissionController.deleteDraft);
 router.patch('/:id/editorial', authenticateToken, requireEditorialRole, submissionController.updateEditorialFields);
 router.patch('/:id/status', authenticateToken, requireEditorialRole, submissionController.updateSubmissionStatus);
 router.patch('/:id/assign-editor', authenticateToken, requireEditorialRole, submissionController.assignSubmissionEditor);
+router.patch('/:id/assign-reviewer', authenticateToken, requireEditorialRole, submissionController.assignSubmissionReviewer);
 
 // Endpoint temporal de prueba de upload
 router.post('/test-upload', upload.single('archivo'), (req, res) => {

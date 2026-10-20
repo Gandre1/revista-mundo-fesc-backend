@@ -111,6 +111,74 @@ exports.getEditors = async (req, res) => {
   }
 };
 
+exports.getReviewers = async (req, res) => {
+  try {
+    const [reviewers] = await db.query(
+      `SELECT id, nombre, apellidos, email
+       FROM users
+       WHERE role = 'reviewer'
+       ORDER BY apellidos ASC, nombre ASC`
+    );
+
+    return res.json({ reviewers });
+  } catch (error) {
+    console.error('Error al consultar revisores:', error);
+    return res.status(500).json({ message: 'Error interno al consultar los revisores.' });
+  }
+};
+
+exports.assignSubmissionReviewer = async (req, res) => {
+  const { id } = req.params;
+  const { reviewer_id, fecha_limite } = req.body || {};
+
+  if (typeof reviewer_id !== 'string' || !reviewer_id.trim()) {
+    return res.status(400).json({ message: 'El identificador del revisor es obligatorio.' });
+  }
+
+  if (typeof fecha_limite !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(fecha_limite)) {
+    return res.status(400).json({ message: 'La fecha límite debe tener el formato AAAA-MM-DD.' });
+  }
+  const [year, month, day] = fecha_limite.split('-').map(Number);
+  const parsedDeadline = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsedDeadline.getUTCFullYear() !== year ||
+    parsedDeadline.getUTCMonth() !== month - 1 ||
+    parsedDeadline.getUTCDate() !== day
+  ) {
+    return res.status(400).json({ message: 'La fecha límite no es válida.' });
+  }
+
+  try {
+    const [submissions] = await db.query('SELECT id FROM submissions WHERE id = ?', [id]);
+    if (submissions.length === 0) {
+      return res.status(404).json({ message: 'Envío no encontrado.' });
+    }
+
+    const [reviewers] = await db.query(
+      "SELECT id FROM users WHERE id = ? AND role = 'reviewer'",
+      [reviewer_id]
+    );
+    if (reviewers.length === 0) {
+      return res.status(400).json({ message: 'El usuario seleccionado no es un revisor válido.' });
+    }
+
+    await db.query(
+      `INSERT INTO submission_reviews (submission_id, reviewer_id, fecha_limite)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE fecha_limite = ?, estado = 'asignado'`,
+      [id, reviewer_id, fecha_limite, fecha_limite]
+    );
+
+    return res.status(200).json({
+      message: 'Revisor asignado correctamente.',
+      submissionId: id,
+    });
+  } catch (error) {
+    console.error('Error al asignar revisor:', error);
+    return res.status(500).json({ message: 'Error interno al asignar el revisor.' });
+  }
+};
+
 const saveEditorialFields = async (req, res, fields = req.body) => {
   const { id } = req.params;
   if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
@@ -264,12 +332,26 @@ exports.getSubmissionById = async (req, res) => {
       [id]
     );
 
+    const [reviews] = isEditorialUser
+      ? await db.query(
+          `SELECT sr.id, sr.reviewer_id,
+                  CONCAT_WS(' ', reviewer.nombre, reviewer.apellidos) AS reviewer_nombre,
+                  sr.fecha_limite, sr.estado
+           FROM submission_reviews sr
+           JOIN users reviewer ON reviewer.id = sr.reviewer_id
+           WHERE sr.submission_id = ?
+           ORDER BY sr.fecha_limite ASC`,
+          [id]
+        )
+      : [[]];
+
     // Respuesta consolidada
     res.json({
       submission: {
         ...submission,
         archivos: files,
-        autores: authors
+        autores: authors,
+        revisores: reviews,
       }
     });
   } catch (error) {
