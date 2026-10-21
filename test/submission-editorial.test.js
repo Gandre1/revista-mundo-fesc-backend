@@ -15,6 +15,7 @@ const state = {
     estado: 'enviado',
     editor_id: null,
     editor_nombre: null,
+    comentarios_editor: null,
   },
 };
 
@@ -50,6 +51,9 @@ const db = {
       if (normalizedSql.includes('editor_id = ?')) {
         state.submission.editor_id = values[normalizedSql.includes('estado = ?') ? 1 : 0];
         state.submission.editor_nombre = state.submission.editor_id ? 'Editora FESC' : null;
+      }
+      if (normalizedSql.includes('comentarios_editor = ?')) {
+        state.submission.comentarios_editor = values[values.length - 2];
       }
       return [{ affectedRows: 1 }];
     }
@@ -94,6 +98,7 @@ function resetState() {
     estado: 'enviado',
     editor_id: null,
     editor_nombre: null,
+    comentarios_editor: null,
   };
 }
 
@@ -140,6 +145,32 @@ test('updates an editorial status and returns the updated submission', async () 
   assert.equal(res.body.submission.estado, 'evaluado');
   assert.equal(res.body.submissionId, 'submission-1');
   assert.ok(state.calls.some(({ sql }) => sql.startsWith('update submissions set estado = ?')));
+});
+
+test('saves optional editorial comments with a status decision', async () => {
+  resetState();
+  const res = response();
+
+  await controller.updateSubmissionStatus(request({
+    estado: 'revisiones_requeridas',
+    comentarios_editor: '  Aclare la metodología.  ',
+  }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(state.submission.estado, 'revisiones_requeridas');
+  assert.equal(state.submission.comentarios_editor, 'Aclare la metodología.');
+  assert.ok(state.calls.some(({ sql }) => sql.includes('comentarios_editor = ?')));
+});
+
+test('rejects non-text editorial comments', async () => {
+  resetState();
+  const res = response();
+
+  await controller.updateSubmissionStatus(request({ estado: 'aceptado', comentarios_editor: 42 }), res);
+
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body.message, /comentarios/);
+  assert.equal(state.calls.length, 0);
 });
 
 test('rejects invalid editorial statuses with HTTP 400', async () => {

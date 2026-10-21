@@ -185,7 +185,7 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
     return res.status(400).json({ message: 'El cuerpo de la solicitud debe ser un objeto JSON.' });
   }
 
-  const { estado, editor_id } = fields;
+  const { estado, editor_id, comentarios_editor } = fields;
   const updates = [];
   const values = [];
 
@@ -237,6 +237,15 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
       values.push(editor_id);
     }
 
+    if (Object.prototype.hasOwnProperty.call(fields, 'comentarios_editor')) {
+      if (comentarios_editor !== null && typeof comentarios_editor !== 'string') {
+        return res.status(400).json({ message: 'Los comentarios editoriales deben ser texto.' });
+      }
+
+      updates.push('comentarios_editor = ?');
+      values.push(comentarios_editor?.trim() || null);
+    }
+
     if (updates.length === 0) {
       return res.status(400).json({ message: 'No se indicaron cambios editoriales.' });
     }
@@ -272,7 +281,12 @@ exports.updateEditorialFields = (req, res) => saveEditorialFields(req, res);
 
 exports.updateSubmissionStatus = (req, res) => {
   const fields = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
-    ? { estado: req.body.estado }
+    ? {
+        estado: req.body.estado,
+        ...(Object.prototype.hasOwnProperty.call(req.body, 'comentarios_editor')
+          ? { comentarios_editor: req.body.comentarios_editor }
+          : {}),
+      }
     : req.body;
   return saveEditorialFields(req, res, fields);
 };
