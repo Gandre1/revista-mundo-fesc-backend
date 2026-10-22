@@ -10,6 +10,10 @@ router.post('/upload', authenticateToken, upload.single('archivo'), fileControll
 
 router.get('/submission/:submissionId', authenticateToken, fileController.getFilesBySubmission);
 
+router.get('/:fileId/preview-token', authenticateToken, fileController.createFilePreviewToken);
+
+router.get('/:fileId/preview', fileController.getFilePreview);
+
 router.get('/:fileId/content', authenticateToken, fileController.getFileContent);
 
 router.delete('/:fileId', authenticateToken, fileController.deleteFile);

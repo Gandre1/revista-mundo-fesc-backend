@@ -13,7 +13,12 @@ const userRoutes = require('./routes/userRoutes');
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Dev-Role', 'Bypass-Tunnel-Reminder'],
+  credentials: true
+}));
 app.use(express.json());
 
 app.use('/api', healthRoutes);

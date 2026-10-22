@@ -1,6 +1,62 @@
 const db = require('../config/db');
 const fs = require('fs');
 const path = require('path');
+const jwt = require('jsonwebtoken');
+
+async function getAccessibleFile(req, res, fileId) {
+  const [files] = await db.query(
+    `SELECT sf.nombre_original, sf.ruta_almacenamiento, s.autor_id
+     FROM submission_files sf
+     JOIN submissions s ON s.id = sf.submission_id
+     WHERE sf.id = ?`,
+    [fileId]
+  );
+
+  if (files.length === 0) {
+    res.status(404).json({ message: 'Archivo no encontrado.' });
+    return null;
+  }
+
+  const file = files[0];
+  const editorialRoles = ['admin', 'editor', 'reviewer'];
+  if (file.autor_id !== req.user.id && !editorialRoles.includes(req.user.role)) {
+    res.status(403).json({ message: 'No tienes permiso para acceder a este archivo.' });
+    return null;
+  }
+
+  return file;
+}
+
+function sendPdfFile(res, fileId, file) {
+  const uploadsDirectory = path.resolve(process.cwd(), 'uploads');
+  const filePath = path.resolve(process.cwd(), file.ruta_almacenamiento);
+  const relativePath = path.relative(uploadsDirectory, filePath);
+
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    console.error(`Ruta de archivo inválida en la base de datos para el archivo ${fileId}.`);
+    return res.status(500).json({ message: 'La ubicación del archivo no es válida.' });
+  }
+
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    return res.status(404).json({ message: 'El archivo no está disponible en el servidor.' });
+  }
+
+  const safeName = path.basename(file.nombre_original).replace(/[\r\n"]/g, '_');
+  if (path.extname(safeName).toLowerCase() !== '.pdf') {
+    return res.status(415).json({ message: 'Solo se pueden visualizar archivos PDF en el navegador.' });
+  }
+
+  const asciiName = safeName.replace(/[^\x20-\x7E]/g, '_').replace(/[\\"]/g, '_');
+  res.type('application/pdf');
+  res.setHeader(
+    'Content-Disposition',
+    `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(safeName).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)}`
+  );
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  return res.sendFile(filePath);
+}
 
 exports.uploadFile = async (req, res) => {
   const { submission_id, tipo } = req.body;
@@ -94,23 +150,8 @@ exports.getFileContent = async (req, res) => {
   const { fileId } = req.params;
 
   try {
-    const [files] = await db.query(
-      `SELECT sf.nombre_original, sf.ruta_almacenamiento, s.autor_id
-       FROM submission_files sf
-       JOIN submissions s ON s.id = sf.submission_id
-       WHERE sf.id = ?`,
-      [fileId]
-    );
-
-    if (files.length === 0) {
-      return res.status(404).json({ message: 'Archivo no encontrado.' });
-    }
-
-    const file = files[0];
-    const editorialRoles = ['admin', 'editor', 'reviewer'];
-    if (file.autor_id !== req.user.id && !editorialRoles.includes(req.user.role)) {
-      return res.status(403).json({ message: 'No tienes permiso para acceder a este archivo.' });
-    }
+    const file = await getAccessibleFile(req, res, fileId);
+    if (!file) return;
 
     const uploadsDirectory = path.resolve(process.cwd(), 'uploads');
     const filePath = path.resolve(process.cwd(), file.ruta_almacenamiento);
@@ -125,20 +166,73 @@ exports.getFileContent = async (req, res) => {
       return res.status(404).json({ message: 'El archivo no está disponible en el servidor.' });
     }
 
-    const safeName = path.basename(file.nombre_original).replace(/[\r\n"]/g, '_');
     if (req.query.download === '1') {
+      const safeName = path.basename(file.nombre_original).replace(/[\r\n"]/g, '_');
       return res.download(filePath, safeName);
     }
 
-    if (path.extname(safeName).toLowerCase() !== '.pdf') {
-      return res.status(415).json({ message: 'Solo se pueden visualizar archivos PDF en el navegador.' });
-    }
-
-    res.type('application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
-    return res.sendFile(filePath);
+    return sendPdfFile(res, fileId, file);
   } catch (error) {
     console.error('Error al consultar el contenido del archivo:', error);
+    return res.status(500).json({ message: 'Error interno al consultar el archivo.' });
+  }
+};
+
+exports.createFilePreviewToken = async (req, res) => {
+  const { fileId } = req.params;
+
+  try {
+    const file = await getAccessibleFile(req, res, fileId);
+    if (!file) return;
+
+    if (!process.env.JWT_SECRET) {
+      console.error('No se puede firmar el enlace del PDF porque JWT_SECRET no está configurado.');
+      return res.status(500).json({ message: 'No se pudo preparar el enlace seguro del PDF.' });
+    }
+
+    const token = jwt.sign(
+      { fileId: String(fileId), purpose: 'file-preview' },
+      process.env.JWT_SECRET,
+      { expiresIn: '10m' }
+    );
+    return res.json({ token });
+  } catch (error) {
+    console.error('Error al preparar el enlace seguro del PDF:', error);
+    return res.status(500).json({ message: 'Error interno al preparar el enlace del archivo.' });
+  }
+};
+
+exports.getFilePreview = async (req, res) => {
+  const { fileId } = req.params;
+  const { token } = req.query;
+
+  if (typeof token !== 'string' || !process.env.JWT_SECRET) {
+    return res.status(401).json({ message: 'El enlace del PDF no es válido o ha expirado.' });
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    return res.status(401).json({ message: 'El enlace del PDF no es válido o ha expirado.' });
+  }
+
+  if (decoded.purpose !== 'file-preview' || decoded.fileId !== String(fileId)) {
+    return res.status(401).json({ message: 'El enlace del PDF no es válido o ha expirado.' });
+  }
+
+  try {
+    const [files] = await db.query(
+      'SELECT nombre_original, ruta_almacenamiento FROM submission_files WHERE id = ?',
+      [fileId]
+    );
+    if (files.length === 0) {
+      return res.status(404).json({ message: 'Archivo no encontrado.' });
+    }
+
+    return sendPdfFile(res, fileId, files[0]);
+  } catch (error) {
+    console.error('Error al obtener el PDF mediante enlace seguro:', error);
     return res.status(500).json({ message: 'Error interno al consultar el archivo.' });
   }
 };
