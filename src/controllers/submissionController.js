@@ -62,6 +62,82 @@ exports.getMySubmissions = async (req, res) => {
 
 exports.getAllSubmissions = async (req, res) => {
   try {
+    const query = req.query || {};
+    const { page: pageParam, limit: limitParam, sortBy: sortByParam, order: orderParam } = query;
+    const hasPagination = pageParam !== undefined || limitParam !== undefined;
+    const parsePositiveInteger = (value, fallback) => {
+      if (value === undefined) return fallback;
+      if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) return null;
+      const parsed = Number(value);
+      return Number.isSafeInteger(parsed) ? parsed : null;
+    };
+
+    const requestedPage = parsePositiveInteger(pageParam, 1);
+    const requestedLimit = parsePositiveInteger(limitParam, 10);
+    if (requestedPage === null || requestedLimit === null || (hasPagination && requestedLimit > 100)) {
+      return res.status(400).json({ message: 'Los parámetros de paginación no son válidos.' });
+    }
+
+    const sortColumns = {
+      titulo: 's.titulo',
+      fecha_envio: 's.fecha_envio',
+      created_at: 's.created_at',
+      estado: 's.estado',
+      autor_nombre: 'autor_nombre',
+      editor_nombre: 'editor_nombre',
+    };
+    const sortBy = sortByParam === undefined ? 'created_at' : sortByParam;
+    const order = orderParam === undefined
+      ? 'desc'
+      : typeof orderParam === 'string' ? orderParam.toLowerCase() : '';
+    if (
+      typeof sortBy !== 'string' ||
+      !Object.prototype.hasOwnProperty.call(sortColumns, sortBy) ||
+      !['asc', 'desc'].includes(order)
+    ) {
+      return res.status(400).json({ message: 'Los parámetros de ordenamiento no son válidos.' });
+    }
+
+    const search = typeof query.search === 'string' ? query.search.trim() : '';
+    const status = typeof query.status === 'string' ? query.status.trim() : '';
+    const whereClauses = [];
+    const filterValues = [];
+    if (search) {
+      whereClauses.push("(s.titulo LIKE ? OR CONCAT_WS(' ', author.nombre, author.apellidos) LIKE ?)");
+      filterValues.push(`%${search}%`, `%${search}%`);
+    }
+    if (status) {
+      const statusAliases = {
+        en_revision: ['en_revision', 'under_review'],
+        evaluado: ['evaluado', 'evaluated'],
+        enviado: ['enviado', 'submitted', 'recibido'],
+        revisiones_requeridas: ['revisiones_requeridas', 'revisions_required', 'ajustes_solicitados'],
+        aceptado: ['aceptado', 'accepted', 'aprobado'],
+        rechazado: ['rechazado', 'rejected'],
+        publicado: ['publicado', 'published'],
+        nuevo: ['nuevo'],
+      };
+      const matchingStatuses = statusAliases[status.toLowerCase()] || [status.toLowerCase()];
+      whereClauses.push(`LOWER(s.estado) IN (${matchingStatuses.map(() => '?').join(', ')})`);
+      filterValues.push(...matchingStatuses);
+    }
+    const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const joinsSql = 'FROM submissions s LEFT JOIN users author ON author.id = s.autor_id LEFT JOIN users editor ON editor.id = s.editor_id';
+
+    const [[countResult]] = await db.query(
+      `SELECT COUNT(*) AS total ${joinsSql} ${whereSql}`,
+      filterValues
+    );
+    const total = Number(countResult.total);
+    const limit = hasPagination ? requestedLimit : total;
+    const totalPages = hasPagination ? Math.max(1, Math.ceil(total / limit)) : 1;
+    const page = hasPagination ? Math.min(requestedPage, totalPages) : requestedPage;
+    const offset = hasPagination ? (page - 1) * limit : 0;
+    const paginationSql = hasPagination ? 'LIMIT ? OFFSET ?' : '';
+    const queryValues = hasPagination
+      ? [...filterValues, limit, offset]
+      : filterValues;
+
     const [submissions] = await db.query(
       `SELECT
         s.id,
@@ -82,13 +158,17 @@ exports.getAllSubmissions = async (req, res) => {
         editor.email AS editor_email,
         (SELECT COUNT(*) FROM submission_files sf WHERE sf.submission_id = s.id) AS total_archivos,
         (SELECT COUNT(*) FROM authors a WHERE a.submission_id = s.id) AS total_autores
-       FROM submissions s
-       LEFT JOIN users author ON author.id = s.autor_id
-       LEFT JOIN users editor ON editor.id = s.editor_id
-       ORDER BY s.created_at DESC`
+       ${joinsSql}
+       ${whereSql}
+       ORDER BY ${sortColumns[sortBy]} ${order.toUpperCase()}
+       ${paginationSql}`,
+      queryValues
     );
 
-    return res.json({ submissions });
+    return res.json({
+      submissions,
+      pagination: { page, limit, total, totalPages },
+    });
   } catch (error) {
     console.error('Error al obtener todos los envíos:', error);
     return res.status(500).json({ message: 'Error interno al consultar los envíos.' });

@@ -46,8 +46,12 @@ npm install
 revista_mundo_fesc
 ```
 
-5. Importa el archivo `database/schema.sql` para crear la estructura de tablas
-6. Si la base de datos ya existe, ejecuta `database/migrations/001_create_submission_reviews.sql` para habilitar las asignaciones de revisores
+5. En phpMyAdmin, selecciona `revista_mundo_fesc` e importa `database/schema.sql`.
+6. Para cargar registros locales de revisión, importa opcionalmente `database/seed.sql`.
+
+> **Desarrollo únicamente:** `database/schema.sql` elimina y vuelve a crear las tablas. No lo ejecutes sobre una base con información que quieras conservar ni en producción. Detén el backend antes de importarlo.
+
+El esquema crea la estructura y una identidad local sin contraseña (`maria.garcia@prueba.com`) necesaria para relacionar los envíos del perfil de autor. No sirve para iniciar sesión. `seed.sql` es opcional, contiene registros para revisar los distintos estados editoriales y se puede importar más de una vez. Sus cuentas tampoco tienen contraseña. El esquema ya crea `submission_reviews`; no es necesario ejecutar una migración adicional para una base nueva.
 
 ---
 
@@ -69,7 +73,7 @@ JWT_EXPIRES_IN=24h
 DEV_AUTH_BYPASS=false
 ```
 
-Para ver los artículos de la base de datos mientras el frontend usa los usuarios mock de ejemplo, configura `DEV_AUTH_BYPASS=true` únicamente en tu `.env` local y reinicia el backend. El rol seleccionado en el mock se envía como `X-Dev-Role`; el backend lo acepta solo fuera de producción y si la variable está habilitada. Por defecto, las consultas de autor usan el usuario de desarrollo de la base incluida en `database/schema.sql`; si tu base usa otro usuario, configura `DEV_AUTH_USER_ID` con un ID existente.
+Para usar el frontend con los perfiles locales, configura `DEV_AUTH_BYPASS=true` únicamente en tu `.env` local y reinicia el backend. El rol seleccionado se envía como `X-Dev-Role`; el backend lo acepta solo fuera de producción y si la variable está habilitada. Las acciones de autor usan la identidad local incluida en el esquema. Estas identidades no permiten iniciar sesión.
 
 No uses este modo en producción. Con un token JWT real, el backend ignora el rol mock y valida el token normalmente.
 
@@ -115,7 +119,7 @@ http://localhost:4000
 | Método | Endpoint                        | Descripción                                         |
 | ------ | ------------------------------- | --------------------------------------------------- |
 | POST   | /api/submissions                | Crear borrador de artículo (requiere JWT)           |
-| GET    | /api/submissions                | Listar envíos con autor, metadatos, estado y editor asignado (admin/editor) |
+| GET    | /api/submissions                | Listar envíos con autor, metadatos, estado y editor asignado (admin/editor); acepta `page`, `limit` (máx. 100), `sortBy` y `order` (`asc`/`desc`) |
 | GET    | /api/submissions/my-submissions | Listar borradores del autor logueado (requiere JWT) |
 | DELETE | /api/submissions/:id            | Eliminar un borrador propio (requiere JWT)          |
 | PATCH  | /api/submissions/:id/status     | Actualizar el estado editorial (admin/editor; JSON: `{"estado":"en_revision"}`) |
@@ -123,6 +127,8 @@ http://localhost:4000
 | GET    | /api/submissions/reviewers      | Listar revisores disponibles (admin/editor) |
 | PATCH  | /api/submissions/:id/assign-reviewer | Asignar revisor y fecha límite (admin/editor; JSON: `{"reviewer_id":"<id>","fecha_limite":"AAAA-MM-DD"}`) |
 | PATCH  | /api/submissions/:id/editorial  | Actualizar estado y/o editor en una misma solicitud (admin/editor) |
+
+La respuesta de `GET /api/submissions` incluye `submissions` y `pagination` (`page`, `limit`, `total`, `totalPages`). Cuando se omiten `page` y `limit`, conserva la lista completa para los consumidores existentes.
 
 Las rutas editoriales responden con JSON y devuelven el envío actualizado. Un estado no válido o un editor inexistente produce `400`; un envío inexistente produce `404`.
 

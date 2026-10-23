@@ -8,6 +8,7 @@ const state = {
   editors: [{ id: 'editor-1' }],
   reviewers: [{ id: 'reviewer-1' }],
   listRows: [],
+  listTotal: 0,
   submissionExists: true,
   reviewAssignment: null,
   submission: {
@@ -23,6 +24,10 @@ const db = {
   async query(sql, values = []) {
     const normalizedSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
     state.calls.push({ sql: normalizedSql, values });
+
+    if (normalizedSql.startsWith('select count(*) as total from submissions s')) {
+      return [[{ total: state.listTotal }]];
+    }
 
     if (normalizedSql.includes('left join users author')) {
       return [state.listRows];
@@ -91,6 +96,7 @@ function resetState() {
   state.editors = [{ id: 'editor-1' }];
   state.reviewers = [{ id: 'reviewer-1' }];
   state.listRows = [];
+  state.listTotal = 0;
   state.submissionExists = true;
   state.reviewAssignment = null;
   state.submission = {
@@ -120,19 +126,71 @@ function request(body = {}) {
   return { params: { id: 'submission-1' }, body };
 }
 
-test('returns the complete editorial list with author and editor relations', async () => {
+test('returns the complete editorial list and pagination metadata', async () => {
   resetState();
   state.listRows = [{ id: 'submission-1', palabras_clave: 'revistas', editor_id: null }];
+  state.listTotal = 1;
   const res = response();
 
   await controller.getAllSubmissions({}, res);
 
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body.submissions, state.listRows);
-  assert.match(state.calls[0].sql, /left join users author/);
-  assert.match(state.calls[0].sql, /left join users editor/);
-  assert.match(state.calls[0].sql, /s\.palabras_clave/);
-  assert.match(state.calls[0].sql, /s\.estado/);
+  assert.deepEqual(res.body.pagination, { page: 1, limit: 1, total: 1, totalPages: 1 });
+  assert.match(state.calls[1].sql, /left join users author/);
+  assert.match(state.calls[1].sql, /left join users editor/);
+  assert.match(state.calls[1].sql, /s\.palabras_clave/);
+  assert.match(state.calls[1].sql, /s\.estado/);
+});
+
+test('paginates and sorts editorial submissions with validated parameters', async () => {
+  resetState();
+  state.listRows = [{ id: 'submission-1' }];
+  state.listTotal = 21;
+  const res = response();
+
+  await controller.getAllSubmissions({ query: { page: '2', limit: '10', sortBy: 'titulo', order: 'asc' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.pagination, { page: 2, limit: 10, total: 21, totalPages: 3 });
+  assert.match(state.calls[1].sql, /order by s\.titulo asc limit \? offset \?$/);
+  assert.deepEqual(state.calls[1].values, [10, 10]);
+});
+
+test('applies search and status filters to both the result count and page query', async () => {
+  resetState();
+  state.listTotal = 1;
+  const res = response();
+
+  await controller.getAllSubmissions({
+    query: { page: '1', limit: '10', search: 'artículo', status: 'enviado' },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(state.calls[0].values[0], '%artículo%');
+  assert.equal(state.calls[0].values[1], '%artículo%');
+  assert.deepEqual(state.calls[0].values.slice(2), ['enviado', 'submitted', 'recibido']);
+  assert.deepEqual(state.calls[1].values, [
+    '%artículo%',
+    '%artículo%',
+    'enviado',
+    'submitted',
+    'recibido',
+    10,
+    0,
+  ]);
+});
+
+test('rejects invalid pagination and sorting parameters', async () => {
+  resetState();
+  const invalidPagination = response();
+  await controller.getAllSubmissions({ query: { page: '0' } }, invalidPagination);
+  assert.equal(invalidPagination.statusCode, 400);
+
+  const invalidSorting = response();
+  await controller.getAllSubmissions({ query: { sortBy: 'id; DROP TABLE submissions' } }, invalidSorting);
+  assert.equal(invalidSorting.statusCode, 400);
+  assert.equal(state.calls.length, 0);
 });
 
 test('updates an editorial status and returns the updated submission', async () => {
