@@ -5,12 +5,13 @@ const test = require('node:test');
 const controllerPath = require.resolve('../src/controllers/submissionController');
 const state = {
   calls: [],
-  editors: [{ id: 'editor-1' }],
-  reviewers: [{ id: 'reviewer-1' }],
+  editors: [{ id: 'editor-1', nombre: 'Editora FESC' }],
+  reviewers: [{ id: 'reviewer-1', reviewer_nombre: 'Revisor FESC' }],
   listRows: [],
   listTotal: 0,
   submissionExists: true,
   reviewAssignment: null,
+  auditLogs: [],
   submission: {
     id: 'submission-1',
     estado: 'enviado',
@@ -47,6 +48,20 @@ const db = {
 
     if (normalizedSql === 'select id from submissions where id = ?') {
       return [state.submissionExists ? [{ id: values[0] }] : []];
+    }
+
+    if (normalizedSql.startsWith('insert into submission_audit_logs')) {
+      state.auditLogs.push({
+        submission_id: values[0],
+        user_id: values[1],
+        action: values[2],
+        description: values[3],
+      });
+      return [{ affectedRows: 1 }];
+    }
+
+    if (normalizedSql.startsWith('select audit.id, audit.submission_id, audit.user_id')) {
+      return [state.auditLogs];
     }
 
     if (normalizedSql.startsWith('update submissions set ')) {
@@ -93,12 +108,13 @@ Module._load = originalLoad;
 
 function resetState() {
   state.calls = [];
-  state.editors = [{ id: 'editor-1' }];
-  state.reviewers = [{ id: 'reviewer-1' }];
+  state.editors = [{ id: 'editor-1', nombre: 'Editora FESC' }];
+  state.reviewers = [{ id: 'reviewer-1', reviewer_nombre: 'Revisor FESC' }];
   state.listRows = [];
   state.listTotal = 0;
   state.submissionExists = true;
   state.reviewAssignment = null;
+  state.auditLogs = [];
   state.submission = {
     id: 'submission-1',
     estado: 'enviado',
@@ -197,12 +213,21 @@ test('updates an editorial status and returns the updated submission', async () 
   resetState();
   const res = response();
 
-  await controller.updateSubmissionStatus(request({ estado: ' Evaluated ' }), res);
+  await controller.updateSubmissionStatus({
+    ...request({ estado: ' Evaluated ' }),
+    user: { id: 'editor-user-1' },
+  }, res);
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.submission.estado, 'evaluado');
   assert.equal(res.body.submissionId, 'submission-1');
   assert.ok(state.calls.some(({ sql }) => sql.startsWith('update submissions set estado = ?')));
+  assert.deepEqual(state.auditLogs, [{
+    submission_id: 'submission-1',
+    user_id: 'editor-user-1',
+    action: 'status_updated',
+    description: 'Estado actualizado a evaluado.',
+  }]);
 });
 
 test('saves optional editorial comments with a status decision', async () => {
@@ -257,6 +282,10 @@ test('assigns and unassigns valid editors', async () => {
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.submission.editor_id, null);
+  assert.equal(state.auditLogs.length, 2);
+  assert.equal(state.auditLogs[0].action, 'editor_assigned');
+  assert.equal(state.auditLogs[0].description, 'Editor Editora FESC asignado.');
+  assert.equal(state.auditLogs[1].description, 'Editor desasignado.');
 });
 
 test('rejects non-editor assignments and reports missing submissions', async () => {
@@ -303,6 +332,39 @@ test('assigns a reviewer with a valid deadline', async () => {
     reviewer_id: 'reviewer-1',
     fecha_limite: '2026-11-20',
   });
+  assert.equal(state.auditLogs[0].action, 'reviewer_assigned');
+  assert.equal(state.auditLogs[0].description, 'Revisor Revisor FESC asignado con fecha límite 2026-11-20.');
+});
+
+test('returns a submission audit history in chronological order', async () => {
+  resetState();
+  state.auditLogs = [{
+    id: 1,
+    action: 'status_updated',
+    description: 'Estado actualizado a aceptado.',
+    user_nombre: 'Editora FESC',
+    created_at: '2026-01-01 10:00:00',
+  }];
+  const res = response();
+
+  await controller.getSubmissionAuditLogs(request(), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.auditLogs, state.auditLogs);
+  assert.match(state.calls[1].sql, /left join users actor/);
+  assert.match(state.calls[1].sql, /locate\(target\.id, audit\.description\)/);
+  assert.match(state.calls[1].sql, /order by audit\.created_at asc, audit\.id asc/);
+});
+
+test('returns 404 when requesting the audit history of a missing submission', async () => {
+  resetState();
+  state.submissionExists = false;
+  const res = response();
+
+  await controller.getSubmissionAuditLogs(request(), res);
+
+  assert.equal(res.statusCode, 404);
+  assert.equal(state.calls.length, 1);
 });
 
 test('rejects invalid reviewer IDs and calendar dates', async () => {

@@ -235,7 +235,8 @@ exports.assignSubmissionReviewer = async (req, res) => {
     }
 
     const [reviewers] = await db.query(
-      "SELECT id FROM users WHERE id = ? AND role = 'reviewer'",
+      `SELECT id, CONCAT_WS(' ', nombre, apellidos) AS reviewer_nombre
+       FROM users WHERE id = ? AND role = 'reviewer'`,
       [reviewer_id]
     );
     if (reviewers.length === 0) {
@@ -247,6 +248,16 @@ exports.assignSubmissionReviewer = async (req, res) => {
        VALUES (?, ?, ?)
        ON DUPLICATE KEY UPDATE fecha_limite = ?, estado = 'asignado'`,
       [id, reviewer_id, fecha_limite, fecha_limite]
+    );
+    await db.query(
+      `INSERT INTO submission_audit_logs (submission_id, user_id, action, description)
+       VALUES (?, ?, ?, ?)`,
+      [
+        id,
+        req.user?.id || null,
+        'reviewer_assigned',
+        `Revisor ${reviewers[0].reviewer_nombre || 'Usuario no disponible'} asignado con fecha límite ${fecha_limite}.`,
+      ]
     );
 
     return res.status(200).json({
@@ -268,6 +279,7 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
   const { estado, editor_id, comentarios_editor } = fields;
   const updates = [];
   const values = [];
+  let updatedStatus;
 
   try {
     if (Object.prototype.hasOwnProperty.call(fields, 'estado')) {
@@ -295,7 +307,8 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
         return res.status(400).json({ message: 'El estado indicado no es válido.' });
       }
       updates.push('estado = ?');
-      values.push(statusMap[normalizedStatus]);
+      updatedStatus = statusMap[normalizedStatus];
+      values.push(updatedStatus);
     }
 
     if (Object.prototype.hasOwnProperty.call(fields, 'editor_id')) {
@@ -346,6 +359,23 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
       [id]
     );
 
+    if (Object.prototype.hasOwnProperty.call(fields, 'estado')) {
+      await db.query(
+        `INSERT INTO submission_audit_logs (submission_id, user_id, action, description)
+         VALUES (?, ?, ?, ?)`,
+        [id, req.user?.id || null, 'status_updated', `Estado actualizado a ${updatedStatus}.`]
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(fields, 'editor_id')) {
+      const description = editor_id
+        ? `Editor ${updatedSubmissions[0].editor_nombre || 'Usuario no disponible'} asignado.`
+        : 'Editor desasignado.';
+      await db.query(
+        `INSERT INTO submission_audit_logs (submission_id, user_id, action, description)
+         VALUES (?, ?, ?, ?)`,
+        [id, req.user?.id || null, 'editor_assigned', description]
+      );
+    }
     return res.status(200).json({
       message: 'Cambios editoriales guardados correctamente.',
       submissionId: id,
@@ -376,6 +406,45 @@ exports.assignSubmissionEditor = (req, res) => {
     ? { editor_id: req.body.editor_id }
     : req.body;
   return saveEditorialFields(req, res, fields);
+};
+
+exports.getSubmissionAuditLogs = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [submissions] = await db.query('SELECT id FROM submissions WHERE id = ?', [id]);
+    if (submissions.length === 0) {
+      return res.status(404).json({ message: 'Envío no encontrado.' });
+    }
+
+    const [auditLogs] = await db.query(
+      `SELECT audit.id, audit.submission_id, audit.user_id,
+              NULLIF(CONCAT_WS(' ', actor.nombre, actor.apellidos), '') AS user_nombre,
+              audit.action,
+              CASE
+                WHEN target.id IS NOT NULL THEN REPLACE(
+                  audit.description,
+                  target.id,
+                  COALESCE(NULLIF(CONCAT_WS(' ', target.nombre, target.apellidos), ''), 'Usuario no disponible')
+                )
+                ELSE audit.description
+              END AS description,
+              audit.created_at
+       FROM submission_audit_logs audit
+       LEFT JOIN users actor ON actor.id = audit.user_id
+       LEFT JOIN users target
+         ON audit.action IN ('editor_assigned', 'reviewer_assigned')
+        AND LOCATE(target.id, audit.description) > 0
+       WHERE audit.submission_id = ?
+       ORDER BY audit.created_at ASC, audit.id ASC`,
+      [id]
+    );
+
+    return res.status(200).json({ auditLogs });
+  } catch (error) {
+    console.error('Error al consultar la bitácora de auditoría:', error);
+    return res.status(500).json({ message: 'Error interno al consultar la bitácora de auditoría.' });
+  }
 };
 
 // Obtener el detalle completo de un envío específico por ID

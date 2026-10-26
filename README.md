@@ -51,7 +51,7 @@ revista_mundo_fesc
 
 > **Desarrollo únicamente:** `database/schema.sql` elimina y vuelve a crear las tablas. No lo ejecutes sobre una base con información que quieras conservar ni en producción. Detén el backend antes de importarlo.
 
-El esquema crea la estructura y una identidad local sin contraseña (`maria.garcia@prueba.com`) necesaria para relacionar los envíos del perfil de autor. No sirve para iniciar sesión. `seed.sql` es opcional, contiene registros para revisar los distintos estados editoriales y se puede importar más de una vez. Sus cuentas tampoco tienen contraseña. El esquema ya crea `submission_reviews`; no es necesario ejecutar una migración adicional para una base nueva.
+El esquema crea la estructura y una identidad local sin contraseña (`maria.garcia@prueba.com`) necesaria para relacionar los envíos del perfil de autor. No sirve para iniciar sesión. `seed.sql` es opcional, contiene registros para revisar los distintos estados editoriales y se puede importar más de una vez. Sus cuentas tampoco tienen contraseña. Para una base existente, aplica las migraciones de `database/migrations/` en orden; incluyen `submission_reviews` y la bitácora `submission_audit_logs`.
 
 ---
 
@@ -127,6 +127,7 @@ http://localhost:4000
 | GET    | /api/submissions/reviewers      | Listar revisores disponibles (admin/editor) |
 | PATCH  | /api/submissions/:id/assign-reviewer | Asignar revisor y fecha límite (admin/editor; JSON: `{"reviewer_id":"<id>","fecha_limite":"AAAA-MM-DD"}`) |
 | PATCH  | /api/submissions/:id/editorial  | Actualizar estado y/o editor en una misma solicitud (admin/editor) |
+| GET    | /api/submissions/:id/audit-logs | Consultar la bitácora cronológica del envío (admin/editor) |
 
 La respuesta de `GET /api/submissions` incluye `submissions` y `pagination` (`page`, `limit`, `total`, `totalPages`). Cuando se omiten `page` y `limit`, conserva la lista completa para los consumidores existentes.
 

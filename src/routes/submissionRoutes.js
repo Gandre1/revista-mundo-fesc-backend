@@ -18,6 +18,7 @@ router.get('/', authenticateToken, requireEditorialRole, submissionController.ge
 router.get('/my-submissions', authenticateToken, submissionController.getMySubmissions);
 router.get('/editors', authenticateToken, requireEditorialRole, submissionController.getEditors);
 router.get('/reviewers', authenticateToken, requireEditorialRole, submissionController.getReviewers);
+router.get('/:id/audit-logs', authenticateToken, requireEditorialRole, submissionController.getSubmissionAuditLogs);
 router.get('/:id', authenticateToken, submissionController.getSubmissionById);
 router.put('/:id', authenticateToken, submissionController.updateSubmission);
 router.delete('/:id', authenticateToken, submissionController.deleteDraft);
