@@ -60,6 +60,45 @@ exports.getMySubmissions = async (req, res) => {
   }
 };
 
+exports.getSubmissionStats = async (req, res) => {
+  try {
+    const [[result]] = await db.query(
+      `SELECT
+        COUNT(*) AS total,
+        COUNT(CASE WHEN LOWER(TRIM(estado)) IN ('nuevo', 'enviado', 'submitted', 'recibido') THEN 1 END) AS nuevos,
+        COUNT(CASE WHEN LOWER(TRIM(estado)) IN ('en_revision', 'under_review', 'evaluado', 'evaluated') THEN 1 END) AS en_revision,
+        COUNT(CASE WHEN LOWER(TRIM(estado)) IN ('revisiones_requeridas', 'revisions_required', 'ajustes_solicitados') THEN 1 END) AS ajustes_solicitados,
+        COUNT(CASE WHEN LOWER(TRIM(estado)) IN ('aceptado', 'accepted', 'aprobado') THEN 1 END) AS aceptados,
+        COUNT(CASE WHEN LOWER(TRIM(estado)) IN ('rechazado', 'rejected') THEN 1 END) AS rechazados,
+        COUNT(CASE WHEN LOWER(TRIM(estado)) IN ('publicado', 'published') THEN 1 END) AS publicados
+       FROM submissions`
+    );
+    const total = Number(result.total);
+    const statuses = {
+      nuevos: Number(result.nuevos),
+      en_revision: Number(result.en_revision),
+      ajustes_solicitados: Number(result.ajustes_solicitados),
+      aceptados: Number(result.aceptados),
+      rechazados: Number(result.rechazados),
+      publicados: Number(result.publicados),
+    };
+    const estados = Object.fromEntries(
+      Object.entries(statuses).map(([estado, conteo]) => [
+        estado,
+        {
+          conteo,
+          porcentaje: total === 0 ? 0 : Number(((conteo / total) * 100).toFixed(2)),
+        },
+      ])
+    );
+
+    return res.json({ total, estados });
+  } catch (error) {
+    console.error('Error al obtener estadísticas de envíos:', error);
+    return res.status(500).json({ message: 'Error interno al consultar las estadísticas de envíos.' });
+  }
+};
+
 exports.getAllSubmissions = async (req, res) => {
   try {
     const query = req.query || {};

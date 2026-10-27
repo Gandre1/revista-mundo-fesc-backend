@@ -9,6 +9,15 @@ const state = {
   reviewers: [{ id: 'reviewer-1', reviewer_nombre: 'Revisor FESC' }],
   listRows: [],
   listTotal: 0,
+  stats: {
+    total: 10,
+    nuevos: 2,
+    en_revision: 2,
+    ajustes_solicitados: 1,
+    aceptados: 2,
+    rechazados: 1,
+    publicados: 2,
+  },
   submissionExists: true,
   reviewAssignment: null,
   auditLogs: [],
@@ -28,6 +37,10 @@ const db = {
 
     if (normalizedSql.startsWith('select count(*) as total from submissions s')) {
       return [[{ total: state.listTotal }]];
+    }
+
+    if (normalizedSql.startsWith('select count(*) as total, count(case when')) {
+      return [[{ ...state.stats }]];
     }
 
     if (normalizedSql.includes('left join users author')) {
@@ -112,6 +125,15 @@ function resetState() {
   state.reviewers = [{ id: 'reviewer-1', reviewer_nombre: 'Revisor FESC' }];
   state.listRows = [];
   state.listTotal = 0;
+  state.stats = {
+    total: 10,
+    nuevos: 2,
+    en_revision: 2,
+    ajustes_solicitados: 1,
+    aceptados: 2,
+    rechazados: 1,
+    publicados: 2,
+  };
   state.submissionExists = true;
   state.reviewAssignment = null;
   state.auditLogs = [];
@@ -141,6 +163,28 @@ function response() {
 function request(body = {}) {
   return { params: { id: 'submission-1' }, body };
 }
+
+test('returns submission counts and percentages by editorial status', async () => {
+  resetState();
+  const res = response();
+
+  await controller.getSubmissionStats({}, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, {
+    total: 10,
+    estados: {
+      nuevos: { conteo: 2, porcentaje: 20 },
+      en_revision: { conteo: 2, porcentaje: 20 },
+      ajustes_solicitados: { conteo: 1, porcentaje: 10 },
+      aceptados: { conteo: 2, porcentaje: 20 },
+      rechazados: { conteo: 1, porcentaje: 10 },
+      publicados: { conteo: 2, porcentaje: 20 },
+    },
+  });
+  assert.match(state.calls[0].sql, /from submissions$/);
+  assert.match(state.calls[0].sql, /count\(case when/);
+});
 
 test('returns the complete editorial list and pagination metadata', async () => {
   resetState();

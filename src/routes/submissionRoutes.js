@@ -15,6 +15,7 @@ const requireEditorialRole = (req, res, next) => {
 
 router.post('/', authenticateToken, submissionController.createSubmission);
 router.get('/', authenticateToken, requireEditorialRole, submissionController.getAllSubmissions);
+router.get('/stats', authenticateToken, requireEditorialRole, submissionController.getSubmissionStats);
 router.get('/my-submissions', authenticateToken, submissionController.getMySubmissions);
 router.get('/editors', authenticateToken, requireEditorialRole, submissionController.getEditors);
 router.get('/reviewers', authenticateToken, requireEditorialRole, submissionController.getReviewers);
