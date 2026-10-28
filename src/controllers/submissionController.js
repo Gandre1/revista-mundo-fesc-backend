@@ -2,6 +2,35 @@ const db = require('../config/db');
 const fs = require('fs');
 const path = require('path');
 
+const createNotification = async (userId, submissionId, title, message) => {
+  if (!userId) return;
+  try {
+    await db.query(
+      `INSERT INTO notifications (user_id, submission_id, title, message)
+       VALUES (?, ?, ?, ?)`,
+      [userId, submissionId, title, message]
+    );
+  } catch (error) {
+    console.error('Error al crear la notificación automática:', error);
+  }
+};
+
+const notifySubmissionParticipants = async (submissionId, title, message) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT autor_id, editor_id FROM submissions WHERE id = ?',
+      [submissionId]
+    );
+    if (rows.length === 0) return;
+    const userIds = [...new Set([rows[0].autor_id, rows[0].editor_id].filter(Boolean))];
+    for (const userId of userIds) {
+      await createNotification(userId, submissionId, title, message);
+    }
+  } catch (error) {
+    console.error('Error al consultar participantes para notificación:', error);
+  }
+};
+
 exports.createSubmission = async (req, res) => {
   const { titulo, resumen, palabras_clave, seccion, idioma } = req.body;
   
@@ -298,6 +327,12 @@ exports.assignSubmissionReviewer = async (req, res) => {
         `Revisor ${reviewers[0].reviewer_nombre || 'Usuario no disponible'} asignado con fecha límite ${fecha_limite}.`,
       ]
     );
+    await createNotification(
+      reviewer_id,
+      id,
+      'Asignación como revisor',
+      `Has sido asignado al envío con fecha límite ${fecha_limite}.`
+    );
 
     return res.status(200).json({
       message: 'Revisor asignado correctamente.',
@@ -404,6 +439,11 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
          VALUES (?, ?, ?, ?)`,
         [id, req.user?.id || null, 'status_updated', `Estado actualizado a ${updatedStatus}.`]
       );
+      await notifySubmissionParticipants(
+        id,
+        'Estado del envío actualizado',
+        `El estado del envío cambió a ${updatedStatus}.`
+      );
     }
     if (Object.prototype.hasOwnProperty.call(fields, 'editor_id')) {
       const description = editor_id
@@ -414,6 +454,14 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
          VALUES (?, ?, ?, ?)`,
         [id, req.user?.id || null, 'editor_assigned', description]
       );
+      if (editor_id) {
+        await createNotification(
+          editor_id,
+          id,
+          'Asignación como editor',
+          'Has sido asignado como editor de este envío.'
+        );
+      }
     }
     return res.status(200).json({
       message: 'Cambios editoriales guardados correctamente.',
