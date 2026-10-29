@@ -12,8 +12,14 @@ module.exports = (req, res, next) => {
     const allowedRoles = ['admin', 'editor', 'reviewer', 'author'];
 
     if (mockAuthEnabled && allowedRoles.includes(devRole)) {
+      const mockUserIds = {
+        author: '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad',
+        editor: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        reviewer: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        admin: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      };
       req.user = {
-        id: process.env.DEV_AUTH_USER_ID || '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad',
+        id: mockUserIds[devRole],
         role: devRole,
         email: `mock-${devRole}@localhost`,
       };

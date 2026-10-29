@@ -37,6 +37,16 @@ const db = {
     if (normalizedSql.startsWith('select id, user_id, submission_id')) {
       return [state.notifications.filter((item) => item.user_id === values[0]).reverse()];
     }
+    if (normalizedSql.startsWith('delete from notifications where id = ? and user_id = ?')) {
+      const initialLength = state.notifications.length;
+      state.notifications = state.notifications.filter((item) => !(String(item.id) === String(values[0]) && item.user_id === values[1]));
+      return [{ affectedRows: initialLength - state.notifications.length }];
+    }
+    if (normalizedSql.startsWith('delete from notifications where user_id = ?')) {
+      const initialLength = state.notifications.length;
+      state.notifications = state.notifications.filter((item) => item.user_id !== values[0]);
+      return [{ affectedRows: initialLength - state.notifications.length }];
+    }
     throw new Error(`Consulta no contemplada en la prueba: ${normalizedSql}`);
   },
 };
@@ -99,4 +109,31 @@ test('returns 404 when the notification does not belong to the user', async () =
   const res = response();
   await controller.markNotificationAsRead({ user: { id: 'author-1' }, params: { id: '99' } }, res);
   assert.equal(res.statusCode, 404);
+});
+
+test('deletes only the owned notification', async () => {
+  resetState();
+  state.notifications = [
+    { id: 1, user_id: 'author-1', submission_id: null, title: 'Aviso', message: 'Mensaje', is_read: 0, created_at: '2026-10-28 09:00:00' },
+    { id: 2, user_id: 'editor-1', submission_id: null, title: 'Aviso', message: 'Mensaje', is_read: 0, created_at: '2026-10-28 09:30:00' },
+  ];
+  const res = response();
+  await controller.deleteNotification({ user: { id: 'author-1' }, params: { id: '1' } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(state.notifications.length, 1);
+  assert.equal(state.notifications[0].user_id, 'editor-1');
+});
+
+test('clears notifications only for the authenticated user', async () => {
+  resetState();
+  state.notifications = [
+    { id: 1, user_id: 'author-1', submission_id: null, title: 'Aviso', message: 'Mensaje', is_read: 0, created_at: '2026-10-28 09:00:00' },
+    { id: 2, user_id: 'editor-1', submission_id: null, title: 'Aviso', message: 'Mensaje', is_read: 0, created_at: '2026-10-28 09:30:00' },
+  ];
+  const res = response();
+  await controller.clearNotifications({ user: { id: 'author-1' } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.deleted, 1);
+  assert.equal(state.notifications.length, 1);
+  assert.equal(state.notifications[0].user_id, 'editor-1');
 });

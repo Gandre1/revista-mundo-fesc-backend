@@ -15,6 +15,17 @@ const createNotification = async (userId, submissionId, title, message) => {
   }
 };
 
+const notifyUsersByRole = async (role, submissionId, title, message) => {
+  try {
+    const [rows] = await db.query('SELECT id FROM users WHERE role = ?', [role]);
+    for (const row of rows) {
+      await createNotification(row.id, submissionId, title, message);
+    }
+  } catch (error) {
+    console.error(`Error al notificar a usuarios con rol ${role}:`, error);
+  }
+};
+
 const notifySubmissionParticipants = async (submissionId, title, message) => {
   try {
     const [rows] = await db.query(
@@ -778,6 +789,13 @@ exports.finalizeSubmission = async (req, res) => {
        SET borrador = 0, estado = 'enviado', fecha_envio = ? 
        WHERE id = ?`,
       [fechaActual, id]
+    );
+
+    await notifyUsersByRole(
+      'admin',
+      id,
+      'Nuevo artículo recibido',
+      'Se ha recibido un nuevo artículo y está listo para revisión editorial.'
     );
 
     return res.json({

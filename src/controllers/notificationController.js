@@ -39,6 +39,49 @@ exports.listNotifications = async (req, res) => {
   }
 };
 
+exports.clearNotifications = async (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) {
+    return res.status(401).json({ message: 'Usuario autenticado no válido.' });
+  }
+
+  try {
+    const [result] = await db.query(
+      'DELETE FROM notifications WHERE user_id = ?',
+      [userId]
+    );
+    return res.status(200).json({
+      message: 'Notificaciones eliminadas.',
+      deleted: result.affectedRows || 0,
+    });
+  } catch (error) {
+    console.error('Error al limpiar notificaciones:', error);
+    return res.status(500).json({ message: 'Error interno al limpiar las notificaciones.' });
+  }
+};
+
+exports.deleteNotification = async (req, res) => {
+  const userId = req.user?.id;
+  const { id } = req.params;
+  if (!userId) {
+    return res.status(401).json({ message: 'Usuario autenticado no válido.' });
+  }
+
+  try {
+    const [result] = await db.query(
+      'DELETE FROM notifications WHERE id = ? AND user_id = ?',
+      [id, userId]
+    );
+    if (!result.affectedRows) {
+      return res.status(404).json({ message: 'Notificación no encontrada.' });
+    }
+    return res.status(200).json({ message: 'Notificación eliminada.', id: Number(id) || id });
+  } catch (error) {
+    console.error('Error al eliminar la notificación:', error);
+    return res.status(500).json({ message: 'Error interno al eliminar la notificación.' });
+  }
+};
+
 exports.markNotificationAsRead = async (req, res) => {
   const userId = req.user?.id;
   const { id } = req.params;
