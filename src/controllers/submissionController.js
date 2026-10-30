@@ -29,11 +29,18 @@ const notifyUsersByRole = async (role, submissionId, title, message) => {
 const notifySubmissionParticipants = async (submissionId, title, message) => {
   try {
     const [rows] = await db.query(
-      'SELECT autor_id, editor_id FROM submissions WHERE id = ?',
+      `SELECT s.autor_id, s.editor_id, sr.reviewer_id
+       FROM submissions s
+       LEFT JOIN submission_reviews sr ON sr.submission_id = s.id
+       WHERE s.id = ?`,
       [submissionId]
     );
     if (rows.length === 0) return;
-    const userIds = [...new Set([rows[0].autor_id, rows[0].editor_id].filter(Boolean))];
+    const userIds = [...new Set([
+      ...rows.map((row) => row.autor_id),
+      ...rows.map((row) => row.editor_id),
+      ...rows.map((row) => row.reviewer_id),
+    ].filter(Boolean))];
     for (const userId of userIds) {
       await createNotification(userId, submissionId, title, message);
     }
@@ -59,6 +66,8 @@ exports.createSubmission = async (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, 'Nuevo', TRUE)`,
       [submissionId, titulo, resumen || null, palabras_clave || null, seccion || null, idioma || 'es', autor_id]
     );
+    await notifyUsersByRole('admin', submissionId, 'Nuevo envío recibido', `Se creó el envío "${titulo}".`);
+    await notifyUsersByRole('editor', submissionId, 'Nuevo envío recibido', `Se creó el envío "${titulo}".`);
 
     res.status(201).json({
       message: 'Envío creado correctamente.',
@@ -290,6 +299,41 @@ exports.assignSubmissionReviewer = async (req, res) => {
   const { id } = req.params;
   const { reviewer_id, fecha_limite } = req.body || {};
 
+  if (reviewer_id === null || reviewer_id === '') {
+    try {
+      const [reviews] = await db.query(
+        'SELECT reviewer_id FROM submission_reviews WHERE submission_id = ?',
+        [id]
+      );
+      await db.query(
+        'DELETE FROM submission_reviews WHERE submission_id = ?',
+        [id]
+      );
+      await db.query(
+        `INSERT INTO submission_audit_logs (submission_id, user_id, action, description)
+         VALUES (?, ?, ?, ?)`,
+        [id, req.user?.id || null, 'reviewer_assigned', 'Revisor desasignado del envío.']
+      );
+      for (const review of reviews) {
+        await createNotification(
+          review.reviewer_id,
+          id,
+          'Asignación de revisión retirada',
+          'Ya no tienes asignado este envío para revisión.'
+        );
+      }
+      await notifySubmissionParticipants(
+        id,
+        'Revisor desasignado',
+        'Se retiró la asignación de revisor de este envío.'
+      );
+      return res.status(200).json({ message: 'Revisor desasignado correctamente.', submissionId: id });
+    } catch (error) {
+      console.error('Error al desasignar revisor:', error);
+      return res.status(500).json({ message: 'Error interno al desasignar el revisor.' });
+    }
+  }
+
   if (typeof reviewer_id !== 'string' || !reviewer_id.trim()) {
     return res.status(400).json({ message: 'El identificador del revisor es obligatorio.' });
   }
@@ -343,6 +387,11 @@ exports.assignSubmissionReviewer = async (req, res) => {
       id,
       'Asignación como revisor',
       `Has sido asignado al envío con fecha límite ${fecha_limite}.`
+    );
+    await notifySubmissionParticipants(
+      id,
+      'Revisor asignado',
+      `Se asignó un revisor al envío con fecha límite ${fecha_limite}.`
     );
 
     return res.status(200).json({
@@ -473,6 +522,11 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
           'Has sido asignado como editor de este envío.'
         );
       }
+      await notifySubmissionParticipants(
+        id,
+        editor_id ? 'Editor asignado al envío' : 'Editor desasignado del envío',
+        editor_id ? 'Se asignó un editor responsable del envío.' : 'El envío quedó sin editor asignado.'
+      );
     }
     return res.status(200).json({
       message: 'Cambios editoriales guardados correctamente.',
@@ -506,6 +560,103 @@ exports.assignSubmissionEditor = (req, res) => {
   return saveEditorialFields(req, res, fields);
 };
 
+exports.assignSubmissionIssue = async (req, res) => {
+  const { id } = req.params;
+  const issueId = req.body?.issue_id;
+
+  if (issueId === null || issueId === '') {
+    try {
+      await db.query('UPDATE submissions SET issue_id = NULL WHERE id = ?', [id]);
+      await db.query(
+        `INSERT INTO submission_audit_logs (submission_id, user_id, action, description)
+         VALUES (?, ?, ?, ?)`,
+        [id, req.user?.id || null, 'issue_assigned', 'Volumen desasignado del envío.']
+      );
+      await notifySubmissionParticipants(id, 'Volumen desasignado', 'El envío dejó de estar asociado a un volumen.');
+      return res.status(200).json({ message: 'Volumen desasignado correctamente.', submissionId: id, issueId: null });
+    } catch (error) {
+      console.error('Error al desasignar el volumen:', error);
+      return res.status(500).json({ message: 'Error interno al desasignar el volumen.' });
+    }
+  }
+
+  if (!Number.isInteger(Number(issueId)) || Number(issueId) <= 0) {
+    return res.status(400).json({ message: 'El identificador del issue no es válido.' });
+  }
+
+  try {
+    const [submissions] = await db.query(
+      'SELECT id, estado, issue_id FROM submissions WHERE id = ?',
+      [id]
+    );
+    if (submissions.length === 0) {
+      return res.status(404).json({ message: 'Envío no encontrado.' });
+    }
+
+    const normalizedStatus = String(submissions[0].estado || '').trim().toLowerCase();
+    const publishableStatuses = ['aceptado', 'accepted', 'aprobado', 'publicado', 'published'];
+    if (!publishableStatuses.includes(normalizedStatus)) {
+      return res.status(409).json({
+        message: 'Solo se pueden asignar envíos aceptados o publicables.',
+      });
+    }
+
+    const [issues] = await db.query(
+      'SELECT id, volume, number, year, title FROM issues WHERE id = ?',
+      [Number(issueId)]
+    );
+    if (issues.length === 0) {
+      return res.status(404).json({ message: 'Issue no encontrado.' });
+    }
+
+    const issue = issues[0];
+    if (submissions[0].issue_id && Number(submissions[0].issue_id) === Number(issueId)) {
+      return res.status(200).json({
+        message: 'El artículo ya está asociado a este volumen.',
+        submissionId: id,
+        issueId: Number(issueId),
+      });
+    }
+
+    await db.query(
+      'UPDATE submissions SET issue_id = ? WHERE id = ?',
+      [Number(issueId), id]
+    );
+    const issueLabel = [
+      `Volumen ${issue.volume}`,
+      `Número ${issue.number}`,
+      `Año ${issue.year}`,
+      issue.title ? `"${issue.title}"` : null,
+    ].filter(Boolean).join(' · ');
+    await db.query(
+      `INSERT INTO submission_audit_logs (submission_id, user_id, action, description)
+       VALUES (?, ?, ?, ?)`,
+      [
+        id,
+        req.user?.id || null,
+        'issue_assigned',
+        `Volumen asignado: ${issueLabel}.`,
+      ]
+    );
+    await notifySubmissionParticipants(
+      id,
+      'Asignación a un volumen',
+      `El envío fue asociado al volumen ${issue.volume}, número ${issue.number} (${issue.year}).`
+    );
+
+    return res.status(200).json({
+      message: 'Artículo asociado al issue correctamente.',
+      submissionId: id,
+      issueId: Number(issueId),
+    });
+  } catch (error) {
+    console.error('Error al asociar el envío con un issue:', error);
+    return res.status(500).json({ message: 'Error interno al asociar el artículo al issue.' });
+  }
+};
+
+exports.assignIssueToSubmission = exports.assignSubmissionIssue;
+
 exports.getSubmissionAuditLogs = async (req, res) => {
   const { id } = req.params;
 
@@ -525,6 +676,15 @@ exports.getSubmissionAuditLogs = async (req, res) => {
                   target.id,
                   COALESCE(NULLIF(CONCAT_WS(' ', target.nombre, target.apellidos), ''), 'Usuario no disponible')
                 )
+                WHEN audit.action = 'issue_assigned'
+                  AND issue.id IS NOT NULL THEN CONCAT(
+                   'Volumen asignado: Volumen ', issue.volume,
+                   ' · Número ', issue.number,
+                   ' · Año ', issue.year,
+                   CASE WHEN issue.title IS NOT NULL AND issue.title <> ''
+                     THEN CONCAT(' · "', issue.title, '"') ELSE '' END,
+                   '.'
+                 )
                 ELSE audit.description
               END AS description,
               audit.created_at
@@ -533,6 +693,9 @@ exports.getSubmissionAuditLogs = async (req, res) => {
        LEFT JOIN users target
          ON audit.action IN ('editor_assigned', 'reviewer_assigned')
         AND LOCATE(target.id, audit.description) > 0
+       LEFT JOIN issues issue
+        ON audit.action = 'issue_assigned'
+        AND audit.description = CONCAT('Issue ', issue.id, ' asignado al envío.')
        WHERE audit.submission_id = ?
        ORDER BY audit.created_at ASC, audit.id ASC`,
       [id]
@@ -554,7 +717,7 @@ exports.getSubmissionById = async (req, res) => {
     const [submissions] = await db.query(
       `SELECT s.id, s.autor_id, s.titulo, s.resumen, s.palabras_clave, s.seccion, s.idioma,
               s.comentarios_editor, s.referencias, s.estado, s.borrador, s.paso_wizard,
-              s.fecha_envio, s.created_at, s.editor_id,
+              s.fecha_envio, s.created_at, s.editor_id, s.issue_id,
               CONCAT_WS(' ', author.nombre, author.apellidos) AS autor_nombre,
               author.email AS autor_email,
               CONCAT_WS(' ', editor.nombre, editor.apellidos) AS editor_nombre
@@ -571,7 +734,12 @@ exports.getSubmissionById = async (req, res) => {
 
     const submission = submissions[0];
     const isEditorialUser = ['admin', 'editor'].includes(req.user.role);
-    if (!isEditorialUser && submission.autor_id !== req.user.id) {
+    const [reviewAssignments] = await db.query(
+      'SELECT reviewer_id FROM submission_reviews WHERE submission_id = ?',
+      [id]
+    );
+    const isAssignedReviewer = reviewAssignments.some((review) => review.reviewer_id === req.user.id);
+    if (!isEditorialUser && submission.autor_id !== req.user.id && !isAssignedReviewer) {
       return res.status(404).json({ message: 'Envío no encontrado.' });
     }
 
@@ -593,8 +761,7 @@ exports.getSubmissionById = async (req, res) => {
       [id]
     );
 
-    const [reviews] = isEditorialUser
-      ? await db.query(
+    const [reviews] = await db.query(
           `SELECT sr.id, sr.reviewer_id,
                   CONCAT_WS(' ', reviewer.nombre, reviewer.apellidos) AS reviewer_nombre,
                   sr.fecha_limite, sr.estado
@@ -603,8 +770,7 @@ exports.getSubmissionById = async (req, res) => {
            WHERE sr.submission_id = ?
            ORDER BY sr.fecha_limite ASC`,
           [id]
-        )
-      : [[]];
+        );
 
     // Respuesta consolidada
     res.json({
@@ -684,20 +850,23 @@ exports.deleteDraft = async (req, res) => {
     transactionStarted = true;
 
     const [submissions] = await connection.query(
-      'SELECT id, autor_id, borrador FROM submissions WHERE id = ? FOR UPDATE',
+      'SELECT id, autor_id FROM submissions WHERE id = ? FOR UPDATE',
       [id]
     );
 
-    if (submissions.length === 0 || submissions[0].autor_id !== req.user.id) {
+    const isAdmin = req.user?.role === 'admin';
+    const isOwner = submissions.length > 0 && submissions[0].autor_id === req.user?.id;
+
+    if (submissions.length === 0) {
       await connection.rollback();
       transactionStarted = false;
-      return res.status(404).json({ message: 'Borrador no encontrado.' });
+      return res.status(404).json({ message: 'Envío no encontrado.' });
     }
 
-    if (!submissions[0].borrador) {
+    if (!isAdmin && !isOwner) {
       await connection.rollback();
       transactionStarted = false;
-      return res.status(409).json({ message: 'Solo se pueden eliminar artículos que aún están en borrador.' });
+      return res.status(403).json({ message: 'Solo el usuario que creó el envío o un administrador puede eliminarlo.' });
     }
 
     const [files] = await connection.query(
@@ -706,14 +875,16 @@ exports.deleteDraft = async (req, res) => {
     );
 
     const [result] = await connection.query(
-      'DELETE FROM submissions WHERE id = ? AND autor_id = ? AND borrador = TRUE',
-      [id, req.user.id]
+      isAdmin
+        ? 'DELETE FROM submissions WHERE id = ?'
+        : 'DELETE FROM submissions WHERE id = ? AND autor_id = ?',
+      isAdmin ? [id] : [id, req.user.id]
     );
 
     if (result.affectedRows !== 1) {
       await connection.rollback();
       transactionStarted = false;
-      return res.status(409).json({ message: 'El borrador cambió de estado y no pudo eliminarse.' });
+      return res.status(409).json({ message: 'El envío cambió de estado y no pudo eliminarse.' });
     }
 
     await connection.commit();
@@ -726,7 +897,7 @@ exports.deleteDraft = async (req, res) => {
       const relativePath = path.relative(uploadsDirectory, filePath);
 
       if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-        console.error(`Se omitió la limpieza de una ruta inválida del borrador ${id}.`);
+        console.error(`Se omitió la limpieza de una ruta inválida del envío ${id}.`);
         continue;
       }
 
@@ -739,13 +910,13 @@ exports.deleteDraft = async (req, res) => {
       }
     }
 
-    return res.json({ message: 'Borrador eliminado correctamente.' });
+    return res.json({ message: 'Envío eliminado correctamente.' });
   } catch (error) {
     if (transactionStarted) {
       await connection.rollback();
     }
-    console.error('Error al eliminar borrador:', error);
-    return res.status(500).json({ message: 'Error interno al eliminar el borrador.' });
+    console.error('Error al eliminar envío:', error);
+    return res.status(500).json({ message: 'Error interno al eliminar el envío.' });
   } finally {
     connection?.release();
   }

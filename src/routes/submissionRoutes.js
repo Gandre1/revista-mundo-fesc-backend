@@ -27,6 +27,7 @@ router.patch('/:id/editorial', authenticateToken, requireEditorialRole, submissi
 router.patch('/:id/status', authenticateToken, requireEditorialRole, submissionController.updateSubmissionStatus);
 router.patch('/:id/assign-editor', authenticateToken, requireEditorialRole, submissionController.assignSubmissionEditor);
 router.patch('/:id/assign-reviewer', authenticateToken, requireEditorialRole, submissionController.assignSubmissionReviewer);
+router.patch('/:id/assign-issue', authenticateToken, requireEditorialRole, submissionController.assignSubmissionIssue);
 
 // Endpoint temporal de prueba de upload
 router.post('/test-upload', upload.single('archivo'), (req, res) => {

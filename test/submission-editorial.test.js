@@ -19,11 +19,14 @@ const state = {
     publicados: 2,
   },
   submissionExists: true,
+  issueExists: true,
+  issueAssignment: null,
   reviewAssignment: null,
   auditLogs: [],
   submission: {
     id: 'submission-1',
     estado: 'enviado',
+    issue_id: null,
     editor_id: null,
     editor_nombre: null,
     comentarios_editor: null,
@@ -63,6 +66,14 @@ const db = {
       return [state.submissionExists ? [{ id: values[0] }] : []];
     }
 
+    if (normalizedSql === 'select id, estado, issue_id from submissions where id = ?') {
+      return [state.submissionExists ? [{ id: values[0], estado: state.submission.estado, issue_id: state.submission.issue_id }] : []];
+    }
+
+    if (normalizedSql === 'select id, volume, number, year, title from issues where id = ?') {
+      return [state.issueExists ? [{ id: values[0], volume: 1, number: 1, year: 2026, title: 'Volumen inaugural' }] : []];
+    }
+
     if (normalizedSql.startsWith('insert into submission_audit_logs')) {
       state.auditLogs.push({
         submission_id: values[0],
@@ -71,6 +82,14 @@ const db = {
         description: values[3],
       });
       return [{ affectedRows: 1 }];
+    }
+
+    if (normalizedSql.startsWith('select s.autor_id, s.editor_id, sr.reviewer_id')) {
+      return [[{ autor_id: state.submission.autor_id || null, editor_id: state.submission.editor_id || null, reviewer_id: null }]];
+    }
+
+    if (normalizedSql.startsWith('insert into notifications')) {
+      return [{ insertId: 1, affectedRows: 1 }];
     }
 
     if (normalizedSql.startsWith('select audit.id, audit.submission_id, audit.user_id')) {
@@ -87,6 +106,10 @@ const db = {
       }
       if (normalizedSql.includes('comentarios_editor = ?')) {
         state.submission.comentarios_editor = values[values.length - 2];
+      }
+      if (normalizedSql === 'update submissions set issue_id = ? where id = ?') {
+        state.issueAssignment = { issue_id: values[0], submission_id: values[1] };
+        state.submission.issue_id = values[0];
       }
       return [{ affectedRows: 1 }];
     }
@@ -135,11 +158,14 @@ function resetState() {
     publicados: 2,
   };
   state.submissionExists = true;
+  state.issueExists = true;
+  state.issueAssignment = null;
   state.reviewAssignment = null;
   state.auditLogs = [];
   state.submission = {
     id: 'submission-1',
     estado: 'enviado',
+    issue_id: null,
     editor_id: null,
     editor_nombre: null,
     comentarios_editor: null,
@@ -347,6 +373,42 @@ test('rejects non-editor assignments and reports missing submissions', async () 
   await controller.updateSubmissionStatus(request({ estado: 'aceptado' }), missingSubmissionResponse);
 
   assert.equal(missingSubmissionResponse.statusCode, 404);
+});
+
+test('assigns accepted submissions to issues and rejects non-publishable states', async () => {
+  resetState();
+  state.submission.estado = 'aceptado';
+  const acceptedResponse = response();
+
+  await controller.assignSubmissionIssue(
+    { ...request({ issue_id: 3 }), user: { id: 'editor-user-1' } },
+    acceptedResponse
+  );
+
+  assert.equal(acceptedResponse.statusCode, 200);
+  assert.deepEqual(state.issueAssignment, {
+    issue_id: 3,
+    submission_id: 'submission-1',
+  });
+  assert.equal(state.auditLogs[0].action, 'issue_assigned');
+  assert.match(
+    state.auditLogs[0].description,
+    /Volumen asignado: Volumen 1 · Número 1 · Año 2026/
+  );
+
+  await controller.assignSubmissionIssue(
+    { ...request({ issue_id: 3 }), user: { id: 'editor-user-1' } },
+    response()
+  );
+  assert.equal(state.auditLogs.length, 1, 'no debe registrar asignaciones duplicadas del mismo volumen');
+
+  resetState();
+  state.submission.estado = 'en_revision';
+  const rejectedResponse = response();
+  await controller.assignSubmissionIssue(request({ issue_id: 3 }), rejectedResponse);
+
+  assert.equal(rejectedResponse.statusCode, 409);
+  assert.equal(state.issueAssignment, null);
 });
 
 test('returns the available reviewers', async () => {

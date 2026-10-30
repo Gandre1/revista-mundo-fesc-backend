@@ -10,6 +10,7 @@ DROP TABLE IF EXISTS `submission_audit_logs`;
 DROP TABLE IF EXISTS `submission_files`;
 DROP TABLE IF EXISTS `authors`;
 DROP TABLE IF EXISTS `submissions`;
+DROP TABLE IF EXISTS `issues`;
 DROP TABLE IF EXISTS `users`;
 
 SET FOREIGN_KEY_CHECKS = 1;
@@ -31,6 +32,20 @@ CREATE TABLE `users` (
   UNIQUE KEY `email` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE `issues` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `volume` int(11) NOT NULL,
+  `number` int(11) NOT NULL,
+  `year` int(11) NOT NULL,
+  `title` varchar(255) DEFAULT NULL,
+  `description` text DEFAULT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'draft',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `issues_volume_number_year_unique` (`volume`, `number`, `year`),
+  CONSTRAINT `issues_status_check` CHECK (`status` IN ('draft', 'published'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE `submissions` (
   `id` varchar(36) NOT NULL,
   `titulo` text NOT NULL,
@@ -45,14 +60,17 @@ CREATE TABLE `submissions` (
   `comentarios_editor` text DEFAULT NULL,
   `autor_id` varchar(36) NOT NULL,
   `editor_id` varchar(36) DEFAULT NULL,
+  `issue_id` bigint(20) unsigned DEFAULT NULL,
   `fecha_envio` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `autor_id` (`autor_id`),
   KEY `editor_id` (`editor_id`),
+  KEY `issue_id` (`issue_id`),
   CONSTRAINT `submissions_ibfk_1` FOREIGN KEY (`autor_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `submissions_ibfk_2` FOREIGN KEY (`editor_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `submissions_ibfk_2` FOREIGN KEY (`editor_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `submissions_issue_fk` FOREIGN KEY (`issue_id`) REFERENCES `issues` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `notifications` (
