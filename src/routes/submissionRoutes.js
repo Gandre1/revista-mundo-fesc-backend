@@ -24,6 +24,7 @@ router.get('/:id', authenticateToken, submissionController.getSubmissionById);
 router.put('/:id', authenticateToken, submissionController.updateSubmission);
 router.delete('/:id', authenticateToken, submissionController.deleteDraft);
 router.patch('/:id/editorial', authenticateToken, requireEditorialRole, submissionController.updateEditorialFields);
+router.patch('/:id/metadata', authenticateToken, requireEditorialRole, submissionController.updatePublicationMetadata);
 router.patch('/:id/status', authenticateToken, requireEditorialRole, submissionController.updateSubmissionStatus);
 router.patch('/:id/assign-editor', authenticateToken, requireEditorialRole, submissionController.assignSubmissionEditor);
 router.patch('/:id/assign-reviewer', authenticateToken, requireEditorialRole, submissionController.assignSubmissionReviewer);

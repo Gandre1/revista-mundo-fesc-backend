@@ -541,6 +541,84 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
 
 exports.updateEditorialFields = (req, res) => saveEditorialFields(req, res);
 
+exports.updatePublicationMetadata = async (req, res) => {
+  const { id } = req.params;
+  const fields = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+    ? req.body
+    : null;
+
+  if (!fields) {
+    return res.status(400).json({ message: 'El cuerpo de la solicitud debe ser un objeto JSON.' });
+  }
+
+  const metadataFields = ['doi', 'pdf_galley_url', 'html_galley_url'];
+  const provided = metadataFields.filter((field) => Object.prototype.hasOwnProperty.call(fields, field));
+  if (provided.length === 0) {
+    return res.status(400).json({ message: 'No se indicaron metadatos de publicación.' });
+  }
+
+  try {
+    const updates = [];
+    const values = [];
+    for (const field of provided) {
+      const value = fields[field];
+      if (value !== null && typeof value !== 'string') {
+        return res.status(400).json({ message: `El campo ${field} debe ser texto o null.` });
+      }
+      const normalized = value?.trim() || null;
+      if (field === 'doi' && normalized && normalized.length > 255) {
+        return res.status(400).json({ message: 'El DOI supera la longitud máxima permitida.' });
+      }
+      if (field !== 'doi' && normalized && normalized.length > 2048) {
+        return res.status(400).json({ message: `El campo ${field} supera la longitud máxima permitida.` });
+      }
+      if (field !== 'doi' && normalized) {
+        try {
+          const url = new URL(normalized);
+          if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid protocol');
+        } catch {
+          return res.status(400).json({ message: `El campo ${field} debe ser una URL HTTP o HTTPS válida.` });
+        }
+      }
+      updates.push(`${field} = ?`);
+      values.push(normalized);
+    }
+
+    const [submissions] = await db.query('SELECT id FROM submissions WHERE id = ?', [id]);
+    if (submissions.length === 0) {
+      return res.status(404).json({ message: 'Envío no encontrado.' });
+    }
+
+    values.push(id);
+    await db.query(`UPDATE submissions SET ${updates.join(', ')} WHERE id = ?`, values);
+
+    const [updated] = await db.query(
+      'SELECT id, doi, pdf_galley_url, html_galley_url FROM submissions WHERE id = ?',
+      [id]
+    );
+
+    await db.query(
+      `INSERT INTO submission_audit_logs (submission_id, user_id, action, description)
+       VALUES (?, ?, ?, ?)`,
+      [id, req.user?.id || null, 'metadata_updated', 'Metadatos de publicación actualizados.']
+    );
+    await notifySubmissionParticipants(
+      id,
+      'Metadatos de publicación actualizados',
+      'Se actualizaron el DOI y/o las galeradas PDF/HTML del envío.'
+    );
+
+    return res.status(200).json({
+      message: 'Metadatos de publicación guardados correctamente.',
+      submissionId: id,
+      submission: updated[0],
+    });
+  } catch (error) {
+    console.error('Error al actualizar los metadatos de publicación:', error);
+    return res.status(500).json({ message: 'Error interno al actualizar los metadatos de publicación.' });
+  }
+};
+
 exports.updateSubmissionStatus = (req, res) => {
   const fields = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
     ? {
@@ -718,6 +796,7 @@ exports.getSubmissionById = async (req, res) => {
       `SELECT s.id, s.autor_id, s.titulo, s.resumen, s.palabras_clave, s.seccion, s.idioma,
               s.comentarios_editor, s.referencias, s.estado, s.borrador, s.paso_wizard,
               s.fecha_envio, s.created_at, s.editor_id, s.issue_id,
+              s.doi, s.pdf_galley_url, s.html_galley_url,
               CONCAT_WS(' ', author.nombre, author.apellidos) AS autor_nombre,
               author.email AS autor_email,
               CONCAT_WS(' ', editor.nombre, editor.apellidos) AS editor_nombre

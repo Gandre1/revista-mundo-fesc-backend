@@ -25,11 +25,15 @@ const state = {
   auditLogs: [],
   submission: {
     id: 'submission-1',
+    autor_id: 'author-1',
     estado: 'enviado',
     issue_id: null,
     editor_id: null,
     editor_nombre: null,
     comentarios_editor: null,
+    doi: null,
+    pdf_galley_url: null,
+    html_galley_url: null,
   },
 };
 
@@ -100,6 +104,16 @@ const db = {
       if (normalizedSql.includes('estado = ?')) {
         state.submission.estado = values[0];
       }
+      let metadataIndex = 0;
+      if (normalizedSql.includes('doi = ?')) {
+        state.submission.doi = values[metadataIndex++];
+      }
+      if (normalizedSql.includes('pdf_galley_url = ?')) {
+        state.submission.pdf_galley_url = values[metadataIndex++];
+      }
+      if (normalizedSql.includes('html_galley_url = ?')) {
+        state.submission.html_galley_url = values[metadataIndex++];
+      }
       if (normalizedSql.includes('editor_id = ?')) {
         state.submission.editor_id = values[normalizedSql.includes('estado = ?') ? 1 : 0];
         state.submission.editor_nombre = state.submission.editor_id ? 'Editora FESC' : null;
@@ -112,6 +126,10 @@ const db = {
         state.submission.issue_id = values[0];
       }
       return [{ affectedRows: 1 }];
+    }
+
+    if (normalizedSql === 'select id, doi, pdf_galley_url, html_galley_url from submissions where id = ?') {
+      return [[{ ...state.submission }]];
     }
 
     if (normalizedSql.startsWith('select s.id, s.estado, s.editor_id')) {
@@ -164,11 +182,15 @@ function resetState() {
   state.auditLogs = [];
   state.submission = {
     id: 'submission-1',
+    autor_id: 'author-1',
     estado: 'enviado',
     issue_id: null,
     editor_id: null,
     editor_nombre: null,
     comentarios_editor: null,
+    doi: null,
+    pdf_galley_url: null,
+    html_galley_url: null,
   };
 }
 
@@ -493,5 +515,46 @@ test('rejects invalid reviewer IDs and calendar dates', async () => {
   );
 
   assert.equal(invalidDateResponse.statusCode, 400);
+  assert.equal(state.calls.length, 0);
+});
+
+test('saves publication DOI and PDF/HTML galley URLs', async () => {
+  resetState();
+  const res = response();
+
+  await controller.updatePublicationMetadata({
+    ...request({
+      doi: '10.1234/fesc.2026.001',
+      pdf_galley_url: 'https://revista.example.org/articles/001.pdf',
+      html_galley_url: 'https://revista.example.org/articles/001',
+    }),
+    user: { id: 'editor-user-1', role: 'editor' },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(state.submission.doi, '10.1234/fesc.2026.001');
+  assert.equal(state.submission.pdf_galley_url, 'https://revista.example.org/articles/001.pdf');
+  assert.equal(state.submission.html_galley_url, 'https://revista.example.org/articles/001');
+  assert.equal(res.body.submission.doi, '10.1234/fesc.2026.001');
+  assert.ok(state.calls.some(({ sql }) =>
+    sql.startsWith('update submissions set doi = ?') &&
+    sql.includes('pdf_galley_url = ?') &&
+    sql.includes('html_galley_url = ?')
+  ));
+  assert.equal(state.auditLogs.at(-1).action, 'metadata_updated');
+  assert.ok(state.calls.some(({ sql }) => sql.startsWith('insert into notifications')));
+});
+
+test('rejects invalid publication galley URLs', async () => {
+  resetState();
+  const res = response();
+
+  await controller.updatePublicationMetadata(
+    request({ pdf_galley_url: 'ftp://revista.example.org/article.pdf' }),
+    res
+  );
+
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body.message, /URL HTTP o HTTPS válida/);
   assert.equal(state.calls.length, 0);
 });
