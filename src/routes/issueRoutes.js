@@ -13,6 +13,7 @@ const requireEditorialRole = (req, res, next) => {
 router.get('/', issueController.listIssues);
 router.post('/', authenticateToken, requireEditorialRole, issueController.createIssue);
 router.patch('/:id', authenticateToken, requireEditorialRole, issueController.updateIssue);
+router.put('/:id', authenticateToken, requireEditorialRole, issueController.updateIssue);
 router.delete('/:id', authenticateToken, requireEditorialRole, issueController.deleteIssue);
 
 module.exports = router;

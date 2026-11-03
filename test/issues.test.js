@@ -19,6 +19,9 @@ const db = {
     if (normalizedSql.startsWith('insert into issues')) {
       return [{ insertId: 12, affectedRows: 1 }];
     }
+    if (normalizedSql.startsWith('update issues')) {
+      return [{ insertId: 0, affectedRows: 1 }];
+    }
     if (normalizedSql.startsWith("select id from users where role in")) {
       return [[]];
     }
@@ -81,7 +84,84 @@ test('creates an issue with normalized publication data', async () => {
     'Ciencia y tecnología',
     'Volumen de investigación',
     'draft',
+    null,
   ]);
+});
+
+test('creates and updates a scheduled issue with a publication date', async () => {
+  state.calls = [];
+  const createResponse = response();
+
+  await controller.createIssue({
+    body: {
+      volume: 6,
+      number: 1,
+      year: 2027,
+      title: 'Edición especial',
+      status: 'scheduled',
+      published_at: '2027-03-15T10:30:00Z',
+    },
+  }, createResponse);
+
+  assert.equal(createResponse.statusCode, 201);
+  assert.equal(createResponse.body.issue.status, 'scheduled');
+  assert.equal(createResponse.body.issue.published_at, '2027-03-15 10:30:00');
+  assert.deepEqual(state.calls[0].values, [
+    6,
+    1,
+    2027,
+    'Edición especial',
+    null,
+    'scheduled',
+    '2027-03-15 10:30:00',
+  ]);
+
+  state.calls = [];
+  const updateResponse = response();
+  await controller.updateIssue({
+    params: { id: '12' },
+    body: {
+      volume: 6,
+      number: 1,
+      year: 2027,
+      title: 'Edición especial revisada',
+      status: 'scheduled',
+      published_at: '2027-04-20T09:00:00-05:00',
+    },
+  }, updateResponse);
+
+  assert.equal(updateResponse.statusCode, 200);
+  assert.equal(updateResponse.body.issue.status, 'scheduled');
+  assert.match(state.calls[0].sql, /published_at = \?/);
+  assert.equal(state.calls[0].values[6], '2027-04-20 14:00:00');
+  assert.equal(state.calls[0].values[7], 12);
+});
+
+test('rejects scheduled and invalid publication states', async () => {
+  const missingDateResponse = response();
+  await controller.createIssue({
+    body: {
+      volume: 7,
+      number: 1,
+      year: 2027,
+      status: 'scheduled',
+      published_at: null,
+    },
+  }, missingDateResponse);
+  assert.equal(missingDateResponse.statusCode, 400);
+  assert.match(missingDateResponse.body.message, /fecha de publicación válida/i);
+
+  const invalidStateResponse = response();
+  await controller.createIssue({
+    body: {
+      volume: 7,
+      number: 1,
+      year: 2027,
+      status: 'archived',
+    },
+  }, invalidStateResponse);
+  assert.equal(invalidStateResponse.statusCode, 400);
+  assert.match(invalidStateResponse.body.message, /estado.*no es válido/i);
 });
 
 test('rejects incomplete issue data and lists issues', async () => {

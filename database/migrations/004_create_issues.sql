@@ -6,10 +6,11 @@ CREATE TABLE IF NOT EXISTS `issues` (
   `title` varchar(255) DEFAULT NULL,
   `description` text DEFAULT NULL,
   `status` varchar(20) NOT NULL DEFAULT 'draft',
+  `published_at` datetime DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `issues_volume_number_year_unique` (`volume`, `number`, `year`),
-  CONSTRAINT `issues_status_check` CHECK (`status` IN ('draft', 'published'))
+  CONSTRAINT `issues_status_check` CHECK (`status` IN ('draft', 'scheduled', 'published'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 DROP PROCEDURE IF EXISTS `add_issue_relation_to_submissions`;

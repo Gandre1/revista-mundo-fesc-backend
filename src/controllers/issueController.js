@@ -26,10 +26,21 @@ const parsePositiveInteger = (value) => {
   return null;
 };
 
+const parsePublishedAt = (value) => {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString().slice(0, 19).replace('T', ' ');
+  }
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const date = new Date(value.trim());
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 19).replace('T', ' ');
+};
+
 exports.listIssues = async (req, res) => {
   try {
     const [issues] = await db.query(
-      `SELECT id, volume, number, year, title, description, status, created_at
+      `SELECT id, volume, number, year, title, description, status, published_at, created_at
        FROM issues
        ORDER BY year DESC, volume DESC, number DESC, id DESC`
     );
@@ -55,19 +66,23 @@ exports.createIssue = async (req, res) => {
     ? req.body.description.trim()
     : null;
   const status = typeof req.body.status === 'string' ? req.body.status.trim().toLowerCase() : 'draft';
+  const publishedAt = parsePublishedAt(req.body.published_at);
 
   if (!volume || !number || !year) {
     return res.status(400).json({ message: 'Volumen, número y año deben ser enteros positivos.' });
   }
-  if (!['draft', 'published'].includes(status)) {
+  if (!['draft', 'scheduled', 'published'].includes(status)) {
     return res.status(400).json({ message: 'El estado indicado no es válido.' });
+  }
+  if (status === 'scheduled' && !publishedAt) {
+    return res.status(400).json({ message: 'Un volumen programado debe incluir una fecha de publicación válida.' });
   }
 
   try {
     const [result] = await db.query(
-      `INSERT INTO issues (volume, number, year, title, description, status)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [volume, number, year, title, description, status]
+      `INSERT INTO issues (volume, number, year, title, description, status, published_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [volume, number, year, title, description, status, status === 'draft' ? null : publishedAt]
     );
     const issue = {
       id: result.insertId,
@@ -77,10 +92,15 @@ exports.createIssue = async (req, res) => {
       title,
       description,
       status,
+      published_at: status === 'draft' ? null : publishedAt,
     };
     await notifyIssueManagers(
-      status === 'published' ? 'Número publicado' : 'Número creado',
-      `Se ${status === 'published' ? 'publicó' : 'creó'} el volumen ${volume}, número ${number} (${year}).`
+      status === 'published'
+        ? 'Número publicado'
+        : status === 'scheduled'
+          ? 'Número programado'
+          : 'Número creado',
+      `Se ${status === 'published' ? 'publicó' : status === 'scheduled' ? 'programó la publicación de' : 'creó'} el volumen ${volume}, número ${number} (${year}).`
     );
     return res.status(201).json({ message: 'Número o volumen creado correctamente.', issue });
   } catch (error) {
@@ -109,24 +129,32 @@ exports.updateIssue = async (req, res) => {
     ? req.body.description.trim()
     : null;
   const status = typeof req.body.status === 'string' ? req.body.status.trim().toLowerCase() : null;
+  const publishedAt = parsePublishedAt(req.body.published_at);
 
   if (!volume || !number || !year) {
     return res.status(400).json({ message: 'Volumen, número y año deben ser enteros positivos.' });
   }
-  if (!['draft', 'published'].includes(status)) {
+  if (!['draft', 'scheduled', 'published'].includes(status)) {
     return res.status(400).json({ message: 'El estado indicado no es válido.' });
+  }
+  if (status === 'scheduled' && !publishedAt) {
+    return res.status(400).json({ message: 'Un volumen programado debe incluir una fecha de publicación válida.' });
   }
 
   try {
     const [result] = await db.query(
-      `UPDATE issues SET volume = ?, number = ?, year = ?, title = ?, description = ?, status = ?
+      `UPDATE issues SET volume = ?, number = ?, year = ?, title = ?, description = ?, status = ?, published_at = ?
        WHERE id = ?`,
-      [volume, number, year, title, description, status, id]
+      [volume, number, year, title, description, status, status === 'draft' ? null : publishedAt, id]
     );
     if (!result.affectedRows) return res.status(404).json({ message: 'Volumen no encontrado.' });
-    const issue = { id, volume, number, year, title, description, status };
+    const issue = { id, volume, number, year, title, description, status, published_at: status === 'draft' ? null : publishedAt };
     await notifyIssueManagers(
-      status === 'published' ? 'Número publicado' : 'Número actualizado',
+      status === 'published'
+        ? 'Número publicado'
+        : status === 'scheduled'
+          ? 'Número programado'
+          : 'Número actualizado',
       `Se actualizó el volumen ${volume}, número ${number} (${year}).`
     );
     return res.status(200).json({ message: 'Volumen actualizado correctamente.', issue });
