@@ -39,6 +39,7 @@ CREATE TABLE `issues` (
   `year` int(11) NOT NULL,
   `title` varchar(255) DEFAULT NULL,
   `description` text DEFAULT NULL,
+  `cover_url` varchar(2048) DEFAULT NULL,
   `status` varchar(20) NOT NULL DEFAULT 'draft',
   `published_at` datetime DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
