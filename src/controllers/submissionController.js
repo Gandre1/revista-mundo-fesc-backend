@@ -797,12 +797,14 @@ exports.getSubmissionById = async (req, res) => {
               s.comentarios_editor, s.referencias, s.estado, s.borrador, s.paso_wizard,
               s.fecha_envio, s.created_at, s.editor_id, s.issue_id,
               s.doi, s.pdf_galley_url, s.html_galley_url,
+              i.status AS issue_status, i.published_at AS issue_published_at,
               CONCAT_WS(' ', author.nombre, author.apellidos) AS autor_nombre,
               author.email AS autor_email,
               CONCAT_WS(' ', editor.nombre, editor.apellidos) AS editor_nombre
        FROM submissions s
        JOIN users author ON author.id = s.autor_id
        LEFT JOIN users editor ON editor.id = s.editor_id
+       LEFT JOIN issues i ON i.id = s.issue_id
        WHERE s.id = ?`,
       [id]
     );

@@ -12,6 +12,7 @@ const userRoutes = require('./routes/userRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const issueRoutes = require('./routes/issueRoutes');
 const publicRoutes = require('./routes/publicRoutes');
+const exportRoutes = require('./routes/exportRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -34,6 +35,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/issues', issueRoutes);
 app.use('/api/public', publicRoutes);
+app.use('/api', exportRoutes);
 
 const ensureIssueCoverColumn = async () => {
   const [columns] = await db.query(
