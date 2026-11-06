@@ -105,7 +105,7 @@ test('creates and updates a scheduled issue with a publication date', async () =
 
   assert.equal(createResponse.statusCode, 201);
   assert.equal(createResponse.body.issue.status, 'scheduled');
-  assert.equal(createResponse.body.issue.published_at, '2027-03-15 10:30:00');
+  assert.equal(createResponse.body.issue.published_at, '2027-03-15 05:30:00');
   assert.deepEqual(state.calls[0].values, [
     6,
     1,
@@ -113,7 +113,7 @@ test('creates and updates a scheduled issue with a publication date', async () =
     'Edición especial',
     null,
     'scheduled',
-    '2027-03-15 10:30:00',
+    '2027-03-15 05:30:00',
   ]);
 
   state.calls = [];
@@ -133,7 +133,7 @@ test('creates and updates a scheduled issue with a publication date', async () =
   assert.equal(updateResponse.statusCode, 200);
   assert.equal(updateResponse.body.issue.status, 'scheduled');
   assert.match(state.calls[0].sql, /published_at = \?/);
-  assert.equal(state.calls[0].values[6], '2027-04-20 14:00:00');
+  assert.equal(state.calls[0].values[6], '2027-04-20 09:00:00');
   assert.equal(state.calls[0].values[7], 12);
 });
 

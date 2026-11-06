@@ -41,7 +41,9 @@ const PUBLIC_RECORD_SQL = `
          i.published_at, i.status AS issue_status
   FROM submissions s
   JOIN issues i ON i.id = s.issue_id
-  WHERE i.status = 'published'
+  WHERE (i.status = 'published'
+     OR (i.status = 'scheduled' AND i.published_at IS NOT NULL
+         AND i.published_at <= CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '-05:00')))
 `;
 
 async function getAuthors(submissionId) {
@@ -182,6 +184,15 @@ exports.getRecord = async (req, res) => {
 
 exports.oai = async (req, res) => {
   const verb = typeof req.query.verb === 'string' ? req.query.verb.trim() : '';
+
+  const accept = typeof req.get === 'function' ? (req.get('accept') || '') : (req.headers?.accept || '');
+  const isBrowserNavigation = accept.includes('text/html') || accept.includes('application/xhtml+xml');
+  if (isBrowserNavigation) {
+    return res.status(404).json({
+      message: 'Este recurso pertenece al intercambio automatizado de metadatos y no está disponible como página pública.',
+    });
+  }
+
   if (verb === 'Identify') return exports.identify(req, res);
   if (verb === 'ListRecords') return exports.listRecords(req, res);
   if (verb === 'GetRecord') return exports.getRecord(req, res);

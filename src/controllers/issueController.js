@@ -1,4 +1,10 @@
+const fs = require('fs');
+const path = require('path');
+
 const db = require('../config/db');
+
+const getPublicGalleyUrl = (req, submissionId, format) =>
+  `${req.protocol}://${req.get('host')}/api/public/submissions/${encodeURIComponent(submissionId)}/galley/${format}`;
 
 const notifyIssueManagers = async (title, message) => {
   try {
@@ -26,15 +32,63 @@ const parsePositiveInteger = (value) => {
   return null;
 };
 
+const isValidWallClock = (datePart, timePart, seconds = '00') => {
+  const date = new Date(`${datePart}T${timePart}:${seconds}Z`);
+  return !Number.isNaN(date.getTime())
+    && date.toISOString().slice(0, 10) === datePart
+    && date.toISOString().slice(11, 16) === timePart
+    && date.toISOString().slice(17, 19) === seconds;
+};
+
+const formatBogotaDateTime = (date) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date).reduce((result, part) => {
+    if (part.type !== 'literal') result[part.type] = part.value;
+    return result;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+};
+
 const parsePublishedAt = (value) => {
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) return null;
-    return value.toISOString().slice(0, 19).replace('T', ' ');
+    return formatBogotaDateTime(value);
   }
   if (typeof value !== 'string' || !value.trim()) return null;
-  const date = new Date(value.trim());
+  const normalized = value.trim();
+  const localMatch = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::(\d{2}))?$/.exec(normalized);
+  if (localMatch) {
+    const seconds = localMatch[3] || '00';
+    if (!isValidWallClock(normalized.slice(0, 10), localMatch[2], seconds)) return null;
+    return `${localMatch[1]} ${localMatch[2]}:${seconds}`;
+  }
+  const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString().slice(0, 19).replace('T', ' ');
+  return formatBogotaDateTime(date);
+};
+
+exports.promoteScheduledIssues = async () => {
+  try {
+    const [result] = await db.query(
+      `UPDATE issues
+       SET status = 'published'
+       WHERE status = 'scheduled'
+         AND published_at IS NOT NULL
+         AND published_at <= CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '-05:00')`
+    );
+    return result?.affectedRows || 0;
+  } catch (error) {
+    console.error('Error al publicar volúmenes programados:', error);
+    return 0;
+  }
 };
 
 exports.listIssues = async (req, res) => {
@@ -53,11 +107,13 @@ exports.listIssues = async (req, res) => {
 
 exports.listPublicIssues = async (req, res) => {
   try {
+    await exports.promoteScheduledIssues();
     const [issues] = await db.query(
       `SELECT id, volume, number, year, title, description, cover_url, status, published_at, created_at
        FROM issues
        WHERE status = 'published'
-          OR (status = 'scheduled' AND published_at IS NOT NULL AND published_at <= NOW())
+          OR (status = 'scheduled' AND published_at IS NOT NULL
+              AND published_at <= CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '-05:00'))
        ORDER BY published_at DESC, year DESC, volume DESC, number DESC, id DESC`
     );
     return res.status(200).json({ issues });
@@ -72,12 +128,14 @@ exports.getPublicIssue = async (req, res) => {
   if (!id) return res.status(400).json({ message: 'El identificador del volumen no es válido.' });
 
   try {
+    await exports.promoteScheduledIssues();
     const [issues] = await db.query(
       `SELECT id, volume, number, year, title, description, cover_url, status, published_at, created_at
        FROM issues
        WHERE id = ?
          AND (status = 'published'
-           OR (status = 'scheduled' AND published_at IS NOT NULL AND published_at <= NOW()))`,
+           OR (status = 'scheduled' AND published_at IS NOT NULL
+               AND published_at <= CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '-05:00')))`,
       [id]
     );
     if (!issues.length) {
@@ -122,13 +180,40 @@ exports.getPublicIssue = async (req, res) => {
       }, {});
     }
 
-    const publications = articles.map((article) => ({
-      ...article,
-      doi: article.doi || null,
-      pdf_galley_url: article.pdf_galley_url || null,
-      html_galley_url: article.html_galley_url || null,
-      authors: authorsByArticle[article.id] || [],
-    }));
+    let galleyFilesByArticle = {};
+    if (articleIds.length) {
+      const placeholders = articleIds.map(() => '?').join(', ');
+      const [galleyFiles] = await db.query(
+        `SELECT submission_id, nombre_original, tipo
+         FROM submission_files
+         WHERE submission_id IN (${placeholders})
+         ORDER BY submission_id ASC, fecha_subida DESC, id DESC`,
+        articleIds,
+      );
+      galleyFilesByArticle = galleyFiles.reduce((result, file) => {
+        if (!result[file.submission_id]) result[file.submission_id] = [];
+        result[file.submission_id].push(file);
+        return result;
+      }, {});
+    }
+    const publications = articles.map((article) => {
+      const galleyFiles = galleyFilesByArticle[article.id] || [];
+      const hasPdf = galleyFiles.some((file) =>
+        String(file.tipo || '').toLowerCase() === 'galley-pdf'
+        || String(file.tipo || '').toLowerCase() === 'pdf'
+        || /\.pdf$/i.test(file.nombre_original || '')
+      );
+      const hasHtml = galleyFiles.some((file) =>
+        String(file.tipo || '').toLowerCase() === 'galley-html'
+      );
+      return {
+        ...article,
+        doi: article.doi || null,
+        pdf_galley_url: hasPdf ? getPublicGalleyUrl(req, article.id, 'pdf') : null,
+        html_galley_url: hasHtml ? getPublicGalleyUrl(req, article.id, 'html') : null,
+        authors: authorsByArticle[article.id] || [],
+      };
+    });
 
     return res.status(200).json({ issue: issues[0], articles: publications });
   } catch (error) {
@@ -137,6 +222,70 @@ exports.getPublicIssue = async (req, res) => {
   }
 };
 
+const servePublicGalley = async (req, res, format) => {
+  const submissionId = typeof req.params.id === 'string' ? req.params.id.trim() : '';
+  if (!submissionId) return res.status(400).json({ message: 'El identificador del artículo no es válido.' });
+
+  try {
+    await exports.promoteScheduledIssues();
+    const [submissions] = await db.query(
+      `SELECT s.id
+       FROM submissions s
+       JOIN issues i ON i.id = s.issue_id
+       WHERE s.id = ?
+         AND LOWER(TRIM(s.estado)) IN ('aceptado', 'accepted', 'aprobado', 'publicado', 'published')
+         AND (
+           i.status = 'published'
+           OR (i.status = 'scheduled' AND i.published_at IS NOT NULL
+               AND i.published_at <= CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '-05:00'))
+         )
+       LIMIT 1`,
+      [submissionId],
+    );
+    if (!submissions.length) {
+      return res.status(404).json({ message: 'Galera no encontrada o artículo no publicado.' });
+    }
+
+    const [files] = await db.query(
+      `SELECT nombre_original, ruta_almacenamiento, tipo
+       FROM submission_files
+       WHERE submission_id = ?
+       ORDER BY fecha_subida DESC, id DESC`,
+      [submissionId],
+    );
+    const file = format === 'pdf'
+      ? (
+        files.find((item) => String(item.tipo || '').toLowerCase() === 'galley-pdf')
+        || files.find((item) => /\.pdf$/i.test(item.nombre_original || '') || String(item.tipo || '').toLowerCase() === 'pdf')
+      )
+      : files.find((item) => String(item.tipo || '').toLowerCase() === 'galley-html');
+
+    if (!file) return res.status(404).json({ message: `No existe una galera ${format.toUpperCase()} para este artículo.` });
+
+    const uploadsDirectory = path.resolve(process.cwd(), 'uploads');
+    const filePath = path.resolve(process.cwd(), file.ruta_almacenamiento);
+    const relativePath = path.relative(uploadsDirectory, filePath);
+    if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      return res.status(500).json({ message: 'La ubicación de la galera no es válida.' });
+    }
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      return res.status(404).json({ message: 'La galera no está disponible en el servidor.' });
+    }
+
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    return format === 'pdf'
+      ? res.sendFile(filePath, { headers: { 'Content-Type': 'application/pdf' } })
+      : res.sendFile(filePath, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  } catch (error) {
+    console.error(`Error al servir galera ${format.toUpperCase()}:`, error);
+    return res.status(500).json({ message: 'Error interno al servir la galera.' });
+  }
+};
+
+exports.servePublicPdfGalley = (req, res) => servePublicGalley(req, res, 'pdf');
+exports.servePublicHtmlGalley = (req, res) => servePublicGalley(req, res, 'html');
+
 exports.getPublicSubmissionDetail = async (req, res) => {
   const submissionId = typeof req.params.id === 'string' ? req.params.id.trim() : '';
   if (!submissionId) {
@@ -144,6 +293,7 @@ exports.getPublicSubmissionDetail = async (req, res) => {
   }
 
   try {
+    await exports.promoteScheduledIssues();
     const [submissions] = await db.query(
       `SELECT s.id, s.titulo, s.resumen, s.palabras_clave, s.seccion, s.idioma,
               s.estado, s.doi, s.pdf_galley_url, s.html_galley_url,
@@ -156,7 +306,8 @@ exports.getPublicSubmissionDetail = async (req, res) => {
          AND LOWER(TRIM(s.estado)) IN ('aceptado', 'accepted', 'aprobado', 'publicado', 'published')
          AND (
            i.status = 'published'
-           OR (i.status = 'scheduled' AND i.published_at IS NOT NULL AND i.published_at <= NOW())
+           OR (i.status = 'scheduled' AND i.published_at IS NOT NULL
+               AND i.published_at <= CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '-05:00'))
          )`,
       [submissionId]
     );
@@ -174,6 +325,20 @@ exports.getPublicSubmissionDetail = async (req, res) => {
       [submissionId]
     );
     const article = submissions[0];
+    const [galleyFiles] = await db.query(
+      `SELECT nombre_original, tipo FROM submission_files
+       WHERE submission_id = ?
+       ORDER BY fecha_subida DESC, id DESC`,
+      [submissionId],
+    );
+    const automaticPdfUrl = galleyFiles.some((file) =>
+      String(file.tipo || '').toLowerCase() === 'galley-pdf'
+      || String(file.tipo || '').toLowerCase() === 'pdf'
+      || /\.pdf$/i.test(file.nombre_original || '')
+    ) ? getPublicGalleyUrl(req, submissionId, 'pdf') : null;
+    const automaticHtmlUrl = galleyFiles.some((file) =>
+      String(file.tipo || '').toLowerCase() === 'galley-html'
+    ) ? getPublicGalleyUrl(req, submissionId, 'html') : null;
     return res.status(200).json({
       article: {
         id: article.id,
@@ -184,8 +349,8 @@ exports.getPublicSubmissionDetail = async (req, res) => {
         idioma: article.idioma,
         estado: article.estado,
         doi: article.doi || null,
-        pdf_galley_url: article.pdf_galley_url || null,
-        html_galley_url: article.html_galley_url || null,
+        pdf_galley_url: automaticPdfUrl,
+        html_galley_url: automaticHtmlUrl,
         fecha_envio: article.fecha_envio,
         created_at: article.created_at,
         updated_at: article.updated_at,
@@ -269,6 +434,7 @@ exports.createIssue = async (req, res) => {
           : 'Número creado',
       `Se ${status === 'published' ? 'publicó' : status === 'scheduled' ? 'programó la publicación de' : 'creó'} el volumen ${volume}, número ${number} (${year}).`
     );
+    if (status === 'scheduled') await exports.promoteScheduledIssues();
     return res.status(201).json({ message: 'Número o volumen creado correctamente.', issue });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
@@ -334,6 +500,7 @@ exports.updateIssue = async (req, res) => {
           : 'Número actualizado',
       `Se actualizó el volumen ${volume}, número ${number} (${year}).`
     );
+    if (status === 'scheduled') await exports.promoteScheduledIssues();
     return res.status(200).json({ message: 'Volumen actualizado correctamente.', issue });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
@@ -347,7 +514,7 @@ exports.updateIssue = async (req, res) => {
 exports.uploadIssueCover = async (req, res) => {
   const id = parsePositiveInteger(req.params.id);
   if (!id) {
-    if (req.file) require('fs').unlinkSync(req.file.path);
+    if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     return res.status(400).json({ message: 'El identificador del volumen no es válido.' });
   }
   if (!req.file) {
@@ -360,7 +527,7 @@ exports.uploadIssueCover = async (req, res) => {
       [id]
     );
     if (!issues.length) {
-      require('fs').unlinkSync(req.file.path);
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       return res.status(404).json({ message: 'Volumen no encontrado.' });
     }
 
@@ -369,9 +536,14 @@ exports.uploadIssueCover = async (req, res) => {
       'UPDATE issues SET cover_url = ? WHERE id = ?',
       [coverUrl, id]
     );
+    const previousCover = issues[0].cover_url;
+    if (typeof previousCover === 'string' && previousCover.startsWith('/uploads/')) {
+      const previousPath = path.join('uploads', path.basename(previousCover));
+      if (previousPath !== req.file.path && fs.existsSync(previousPath)) fs.unlinkSync(previousPath);
+    }
     return res.status(200).json({ message: 'Portada cargada correctamente.', cover_url: coverUrl });
   } catch (error) {
-    require('fs').unlinkSync(req.file.path);
+    if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     console.error('Error al cargar la portada del volumen:', error);
     return res.status(500).json({ message: 'Error interno al cargar la portada.' });
   }

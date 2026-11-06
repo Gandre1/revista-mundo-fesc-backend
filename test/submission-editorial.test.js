@@ -69,6 +69,9 @@ const db = {
     if (normalizedSql === 'select id from submissions where id = ?') {
       return [state.submissionExists ? [{ id: values[0] }] : []];
     }
+    if (normalizedSql.startsWith('select id, nombre_original, tipo from submission_files')) {
+      return [[]];
+    }
 
     if (normalizedSql === 'select id, estado, issue_id from submissions where id = ?') {
       return [state.submissionExists ? [{ id: values[0], estado: state.submission.estado, issue_id: state.submission.issue_id }] : []];
@@ -311,14 +314,14 @@ test('updates an editorial status and returns the updated submission', async () 
   }, res);
 
   assert.equal(res.statusCode, 200);
-  assert.equal(res.body.submission.estado, 'evaluado');
+  assert.equal(res.body.submission.estado, 'en_revision');
   assert.equal(res.body.submissionId, 'submission-1');
   assert.ok(state.calls.some(({ sql }) => sql.startsWith('update submissions set estado = ?')));
   assert.deepEqual(state.auditLogs, [{
     submission_id: 'submission-1',
     user_id: 'editor-user-1',
     action: 'status_updated',
-    description: 'Estado actualizado a evaluado.',
+    description: 'Estado actualizado a En revisión.',
   }]);
 });
 

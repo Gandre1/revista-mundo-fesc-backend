@@ -22,7 +22,9 @@ const fileFilter = (req, file, cb) => {
   if (allowedTypes.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error('Formato de archivo no soportado. Solo se permiten archivos PDF, DOC y DOCX.'), false);
+    const error = new Error('Formato de archivo no soportado. Solo se permiten archivos PDF, DOC y DOCX.');
+    error.code = 'INVALID_FILE_TYPE';
+    cb(error, false);
   }
 };
 

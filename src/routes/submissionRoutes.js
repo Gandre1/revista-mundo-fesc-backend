@@ -3,6 +3,27 @@ const router = express.Router();
 const submissionController = require('../controllers/submissionController');
 const authenticateToken = require('../middlewares/authMiddleware');
 const upload = require('../middlewares/uploadMiddleware');
+const multer = require('multer');
+const path = require('path');
+
+const galleyUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, 'uploads/'),
+    filename: (req, file, cb) => {
+      const suffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+      cb(null, `galley-${suffix}${path.extname(file.originalname).toLowerCase()}`);
+    },
+  }),
+  fileFilter: (req, file, cb) => {
+    const allowed = file.fieldname === 'pdf'
+      ? ['.pdf']
+      : file.fieldname === 'html'
+        ? ['.html', '.htm']
+        : [];
+    cb(null, allowed.includes(path.extname(file.originalname).toLowerCase()));
+  },
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
 
 //router.use(authenticateToken);
 
@@ -25,6 +46,10 @@ router.put('/:id', authenticateToken, submissionController.updateSubmission);
 router.delete('/:id', authenticateToken, submissionController.deleteDraft);
 router.patch('/:id/editorial', authenticateToken, requireEditorialRole, submissionController.updateEditorialFields);
 router.patch('/:id/metadata', authenticateToken, requireEditorialRole, submissionController.updatePublicationMetadata);
+router.patch('/:id/galleys', authenticateToken, requireEditorialRole, galleyUpload.fields([
+  { name: 'pdf', maxCount: 1 },
+  { name: 'html', maxCount: 1 },
+]), submissionController.updatePublicationGalleys);
 router.patch('/:id/status', authenticateToken, requireEditorialRole, submissionController.updateSubmissionStatus);
 router.patch('/:id/assign-editor', authenticateToken, requireEditorialRole, submissionController.assignSubmissionEditor);
 router.patch('/:id/assign-reviewer', authenticateToken, requireEditorialRole, submissionController.assignSubmissionReviewer);

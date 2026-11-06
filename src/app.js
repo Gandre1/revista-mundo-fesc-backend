@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
 require('dotenv').config();
 
 const db = require('./config/db');
@@ -13,6 +14,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const issueRoutes = require('./routes/issueRoutes');
 const publicRoutes = require('./routes/publicRoutes');
 const exportRoutes = require('./routes/exportRoutes');
+const issueController = require('./controllers/issueController');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -37,6 +39,19 @@ app.use('/api/issues', issueRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api', exportRoutes);
 
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ message: 'El archivo supera el limite permitido.' });
+    }
+    return res.status(400).json({ message: 'No fue posible procesar el archivo enviado.' });
+  }
+  if (error?.code === 'INVALID_FILE_TYPE') {
+    return res.status(400).json({ message: error.message });
+  }
+  return next(error);
+});
+
 const ensureIssueCoverColumn = async () => {
   const [columns] = await db.query(
     `SELECT COLUMN_NAME
@@ -54,11 +69,29 @@ const ensureIssueCoverColumn = async () => {
   }
 };
 
+const normalizeSubmissionStatuses = async () => {
+  await db.query(
+    `UPDATE submissions
+     SET estado = 'publicado'
+     WHERE LOWER(TRIM(estado)) IN ('aceptado', 'accepted', 'aprobado', 'approved')`
+  );
+  await db.query(
+    `UPDATE submissions
+     SET estado = 'en_revision'
+     WHERE LOWER(TRIM(estado)) IN ('evaluado', 'evaluated')`
+  );
+};
+
 const startServer = async () => {
   try {
     await db.query('SELECT 1');
     await ensureIssueCoverColumn();
+    await normalizeSubmissionStatuses();
     console.log('Conexión a la base de datos establecida correctamente.');
+    await issueController.promoteScheduledIssues();
+    setInterval(() => {
+      issueController.promoteScheduledIssues();
+    }, 60 * 1000).unref();
   } catch (error) {
     console.error('ERROR: No se pudo preparar la conexión o la migración de la base de datos.', error);
   }

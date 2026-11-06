@@ -424,13 +424,15 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
         en_revision: 'en_revision',
         'en revisión': 'en_revision',
         under_review: 'en_revision',
-        evaluado: 'evaluado',
-        evaluated: 'evaluado',
+        evaluado: 'en_revision',
+        evaluated: 'en_revision',
         revisiones_requeridas: 'revisiones_requeridas',
         'revisiones requeridas': 'revisiones_requeridas',
         revisions_required: 'revisiones_requeridas',
-        aceptado: 'aceptado',
-        accepted: 'aceptado',
+        aceptado: 'publicado',
+        accepted: 'publicado',
+        aprobado: 'publicado',
+        approved: 'publicado',
         rechazado: 'rechazado',
         rejected: 'rechazado',
         publicado: 'publicado',
@@ -482,6 +484,27 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
       return res.status(404).json({ message: 'Envío no encontrado.' });
     }
 
+    const pdfFieldWasEmpty = !Object.prototype.hasOwnProperty.call(fields, 'pdf_galley_url')
+      || !fields.pdf_galley_url?.trim();
+    if (pdfFieldWasEmpty) {
+      const [pdfFiles] = await db.query(
+        `SELECT id, nombre_original, tipo FROM submission_files
+         WHERE submission_id = ?
+         ORDER BY
+           CASE WHEN LOWER(tipo) IN ('galley-pdf', 'pdf') THEN 0 ELSE 1 END,
+           fecha_subida DESC, id DESC`,
+        [id],
+      );
+      const pdfFile = pdfFiles.find((file) => (
+        ['galley-pdf', 'pdf'].includes(String(file.tipo || '').toLowerCase())
+        || /\.pdf$/i.test(String(file.nombre_original || ''))
+      ));
+      if (pdfFile) {
+        updates.push('pdf_galley_url = ?');
+        values.push(`/api/public/submissions/${encodeURIComponent(id)}/galley/pdf`);
+      }
+    }
+
     values.push(id);
     await db.query(`UPDATE submissions SET ${updates.join(', ')} WHERE id = ?`, values);
     const [updatedSubmissions] = await db.query(
@@ -494,15 +517,20 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
     );
 
     if (Object.prototype.hasOwnProperty.call(fields, 'estado')) {
+      const statusLabel = updatedStatus === 'en_revision'
+        ? 'En revisión'
+        : updatedStatus === 'publicado'
+          ? 'Publicado'
+          : updatedStatus;
       await db.query(
         `INSERT INTO submission_audit_logs (submission_id, user_id, action, description)
          VALUES (?, ?, ?, ?)`,
-        [id, req.user?.id || null, 'status_updated', `Estado actualizado a ${updatedStatus}.`]
+        [id, req.user?.id || null, 'status_updated', `Estado actualizado a ${statusLabel}.`]
       );
       await notifySubmissionParticipants(
         id,
         'Estado del envío actualizado',
-        `El estado del envío cambió a ${updatedStatus}.`
+        `El estado del envío cambió a ${statusLabel}.`
       );
     }
     if (Object.prototype.hasOwnProperty.call(fields, 'editor_id')) {
@@ -541,6 +569,84 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
 
 exports.updateEditorialFields = (req, res) => saveEditorialFields(req, res);
 
+exports.updatePublicationGalleys = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [submissions] = await db.query('SELECT id FROM submissions WHERE id = ?', [id]);
+    if (!submissions.length) {
+      for (const files of Object.values(req.files || {})) {
+        for (const file of files) {
+          if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        }
+      }
+      return res.status(404).json({ message: 'Envío no encontrado.' });
+    }
+
+    let pdfUrl = null;
+    let htmlUrl = null;
+
+    if (req.files?.pdf?.[0]) {
+      const file = req.files.pdf[0];
+      await db.query(
+        `INSERT INTO submission_files (submission_id, nombre_original, ruta_almacenamiento, tamano, tipo)
+         VALUES (?, ?, ?, ?, 'galley-pdf')`,
+        [id, file.originalname, file.path, file.size],
+      );
+      pdfUrl = `/api/public/submissions/${encodeURIComponent(id)}/galley/pdf`;
+    }
+    if (req.files?.html?.[0]) {
+      const file = req.files.html[0];
+      await db.query(
+        `INSERT INTO submission_files (submission_id, nombre_original, ruta_almacenamiento, tamano, tipo)
+         VALUES (?, ?, ?, ?, 'galley-html')`,
+        [id, file.originalname, file.path, file.size],
+      );
+      htmlUrl = `/api/public/submissions/${encodeURIComponent(id)}/galley/html`;
+    }
+
+    const updates = [];
+    const values = [];
+    if (pdfUrl) {
+      updates.push('pdf_galley_url = ?');
+      values.push(pdfUrl);
+    }
+    if (htmlUrl) {
+      updates.push('html_galley_url = ?');
+      values.push(htmlUrl);
+    }
+    if (!updates.length) {
+      return res.status(400).json({ message: 'Debes subir al menos una galera PDF o HTML.' });
+    }
+
+    values.push(id);
+    await db.query(`UPDATE submissions SET ${updates.join(', ')} WHERE id = ?`, values);
+    const [updated] = await db.query(
+      'SELECT id, doi, pdf_galley_url, html_galley_url FROM submissions WHERE id = ?',
+      [id],
+    );
+
+    await db.query(
+      `INSERT INTO submission_audit_logs (submission_id, user_id, action, description)
+       VALUES (?, ?, ?, ?)`,
+      [id, req.user?.id || null, 'metadata_updated', 'Galeras PDF/HTML actualizadas.'],
+    );
+
+    return res.status(200).json({
+      message: 'Galeras cargadas correctamente.',
+      submissionId: id,
+      submission: updated[0],
+    });
+  } catch (error) {
+    for (const files of Object.values(req.files || {})) {
+      for (const file of files) {
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      }
+    }
+    console.error('Error al cargar las galeras:', error);
+    return res.status(500).json({ message: 'Error interno al cargar las galeras.' });
+  }
+};
+
 exports.updatePublicationMetadata = async (req, res) => {
   const { id } = req.params;
   const fields = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
@@ -566,6 +672,7 @@ exports.updatePublicationMetadata = async (req, res) => {
         return res.status(400).json({ message: `El campo ${field} debe ser texto o null.` });
       }
       const normalized = value?.trim() || null;
+      if (field === 'pdf_galley_url' && !normalized) continue;
       if (field === 'doi' && normalized && normalized.length > 255) {
         return res.status(400).json({ message: 'El DOI supera la longitud máxima permitida.' });
       }
@@ -589,6 +696,9 @@ exports.updatePublicationMetadata = async (req, res) => {
       return res.status(404).json({ message: 'Envío no encontrado.' });
     }
 
+    // Las URL heredadas ya no representan galeradas. Se mantienen solo los archivos reales.
+    updates.push('pdf_galley_url = NULL');
+    updates.push('html_galley_url = NULL');
     values.push(id);
     await db.query(`UPDATE submissions SET ${updates.join(', ')} WHERE id = ?`, values);
 

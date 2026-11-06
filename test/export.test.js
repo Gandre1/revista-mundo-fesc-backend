@@ -35,14 +35,17 @@ Module._load = function (request, parent, isMain) {
 const controller = require(controllerPath);
 Module._load = originalLoad;
 
-function request(query = {}, params = {}) {
+function request(query = {}, params = {}, headers = {}) {
   return {
     query,
     params,
     protocol: 'http',
-    headers: {},
+    headers,
     get(name) {
-      return name.toLowerCase() === 'host' ? 'localhost:4000' : undefined;
+      const normalizedName = name.toLowerCase();
+      if (normalizedName === 'host') return 'localhost:4000';
+      if (normalizedName === 'accept') return headers.accept;
+      return undefined;
     },
   };
 }
@@ -90,6 +93,18 @@ const publishedRecord = {
   published_at: '2026-03-01',
   issue_status: 'published',
 };
+
+test('browser navigation cannot view the OAI-PMH metadata feed', async () => {
+  const res = response();
+  await controller.oai(request(
+    { verb: 'ListRecords', metadataPrefix: 'oai_dc' },
+    {},
+    { accept: 'text/html,application/xhtml+xml' },
+  ), res);
+
+  assert.equal(res.statusCode, 404);
+  assert.match(res.body.message, /intercambio automatizado/i);
+});
 
 test('ListRecords OAI-PMH returns Dublin Core XML and application/xml', async () => {
   state.records = [publishedRecord];
