@@ -11,6 +11,7 @@ const authorRoutes = require('./routes/authorRoutes');
 const fileRoutes = require('./routes/fileRoutes');
 const userRoutes = require('./routes/userRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const emailTemplateRoutes = require('./routes/emailTemplateRoutes');
 const issueRoutes = require('./routes/issueRoutes');
 const publicRoutes = require('./routes/publicRoutes');
 const exportRoutes = require('./routes/exportRoutes');
@@ -35,6 +36,7 @@ app.use('/api/authors', authorRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/email-templates', emailTemplateRoutes);
 app.use('/api/issues', issueRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api', exportRoutes);
@@ -69,6 +71,23 @@ const ensureIssueCoverColumn = async () => {
   }
 };
 
+const ensureEmailTemplatesTable = async () => {
+  await db.query(
+    `CREATE TABLE IF NOT EXISTS email_templates (
+      id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+      template_key varchar(100) NOT NULL,
+      name varchar(150) NOT NULL,
+      subject varchar(255) NOT NULL,
+      body_html longtext NOT NULL,
+      variables_disponibles JSON NOT NULL,
+      created_at timestamp NOT NULL DEFAULT current_timestamp(),
+      updated_at timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+      PRIMARY KEY (id),
+      UNIQUE KEY email_templates_key_unique (template_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+  );
+};
+
 const normalizeSubmissionStatuses = async () => {
   await db.query(
     `UPDATE submissions
@@ -86,6 +105,7 @@ const startServer = async () => {
   try {
     await db.query('SELECT 1');
     await ensureIssueCoverColumn();
+    await ensureEmailTemplatesTable();
     await normalizeSubmissionStatuses();
     console.log('Conexión a la base de datos establecida correctamente.');
     await issueController.promoteScheduledIssues();

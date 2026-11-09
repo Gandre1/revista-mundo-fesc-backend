@@ -133,6 +133,19 @@ La respuesta de `GET /api/submissions` incluye `submissions` y `pagination` (`pa
 
 Las rutas editoriales responden con JSON y devuelven el envío actualizado. Un estado no válido o un editor inexistente produce `400`; un envío inexistente produce `404`.
 
+### Plantillas de correo
+
+Todas estas rutas requieren autenticación y el rol `admin` o `editor`. Las plantillas se gestionan bajo `/api/email-templates`; `variables_disponibles` es una lista JSON de identificadores y, si se omite al crear o actualizar, se extrae de los marcadores `{{variable}}` del asunto y el cuerpo HTML.
+
+| Método | Endpoint | Descripción |
+| ------ | -------- | ----------- |
+| GET | `/api/email-templates` | Listar plantillas |
+| GET | `/api/email-templates/:templateKey` | Consultar una plantilla por clave |
+| POST | `/api/email-templates` | Crear con `template_key`, `name`, `subject`, `body_html` y, opcionalmente, `variables_disponibles` |
+| PUT | `/api/email-templates/:templateKey` | Reemplazar `name`, `subject`, `body_html` y, opcionalmente, `variables_disponibles` |
+
+Ejemplo de marcadores admitidos: `{{nombre_autor}}`, `{{titulo_articulo}}` y `{{rol}}`. La respuesta expone `variables_disponibles` como una lista.
+
 ---
 
 ### 👥 Autores / Coautores

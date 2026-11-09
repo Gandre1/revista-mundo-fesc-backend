@@ -5,6 +5,7 @@
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS `notifications`;
+DROP TABLE IF EXISTS `email_templates`;
 DROP TABLE IF EXISTS `submission_reviews`;
 DROP TABLE IF EXISTS `submission_audit_logs`;
 DROP TABLE IF EXISTS `submission_files`;
@@ -91,6 +92,19 @@ CREATE TABLE `notifications` (
   KEY `notifications_submission_idx` (`submission_id`),
   CONSTRAINT `notifications_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `notifications_submission_fk` FOREIGN KEY (`submission_id`) REFERENCES `submissions` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `email_templates` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `template_key` varchar(100) NOT NULL,
+  `name` varchar(150) NOT NULL,
+  `subject` varchar(255) NOT NULL,
+  `body_html` longtext NOT NULL,
+  `variables_disponibles` JSON NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `email_templates_key_unique` (`template_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `authors` (
