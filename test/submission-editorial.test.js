@@ -3,10 +3,15 @@ const Module = require('node:module');
 const test = require('node:test');
 
 const controllerPath = require.resolve('../src/controllers/submissionController');
+const emailCalls = [];
 const state = {
   calls: [],
   editors: [{ id: 'editor-1', nombre: 'Editora FESC' }],
-  reviewers: [{ id: 'reviewer-1', reviewer_nombre: 'Revisor FESC' }],
+  reviewers: [{
+    id: 'reviewer-1',
+    reviewer_nombre: 'Revisor FESC',
+    email: 'reviewer@example.org',
+  }],
   listRows: [],
   listTotal: 0,
   stats: {
@@ -26,6 +31,9 @@ const state = {
   submission: {
     id: 'submission-1',
     autor_id: 'author-1',
+    titulo: 'Artículo de prueba',
+    nombre_autor: 'Autora de prueba',
+    email_autor: 'author@example.org',
     estado: 'enviado',
     issue_id: null,
     editor_id: null,
@@ -50,10 +58,6 @@ const db = {
       return [[{ ...state.stats }]];
     }
 
-    if (normalizedSql.includes('left join users author')) {
-      return [state.listRows];
-    }
-
     if (normalizedSql.includes("from users where id = ? and role = 'editor'")) {
       return [state.editors.filter((editor) => editor.id === values[0])];
     }
@@ -66,8 +70,33 @@ const db = {
       return [state.reviewers];
     }
 
+    if (normalizedSql.startsWith('select s.titulo, author.nombre as nombre_autor')) {
+      return [[{
+        titulo: state.submission.titulo,
+        nombre_autor: 'Autora',
+        apellidos_autor: 'de prueba',
+      }]];
+    }
+
+    if (normalizedSql.startsWith('select s.id, s.estado, s.editor_id')) {
+      return [[{
+        ...state.submission,
+        nombre_autor: state.submission.nombre_autor,
+        email_autor: state.submission.email_autor,
+      }]];
+    }
+
+    if (normalizedSql.includes('left join users author')) {
+      return [state.listRows];
+    }
+
     if (normalizedSql === 'select id from submissions where id = ?') {
       return [state.submissionExists ? [{ id: values[0] }] : []];
+    }
+    if (normalizedSql === 'select id, estado from submissions where id = ?') {
+      return [state.submissionExists
+        ? [{ id: values[0], estado: state.submission.estado }]
+        : []];
     }
     if (normalizedSql.startsWith('select id, nombre_original, tipo from submission_files')) {
       return [[]];
@@ -135,10 +164,6 @@ const db = {
       return [[{ ...state.submission }]];
     }
 
-    if (normalizedSql.startsWith('select s.id, s.estado, s.editor_id')) {
-      return [[{ ...state.submission }]];
-    }
-
     if (normalizedSql.startsWith('insert into submission_reviews')) {
       state.reviewAssignment = {
         submission_id: values[0],
@@ -157,6 +182,13 @@ Module._load = function (request, parent, isMain) {
   if (request === '../config/db' && parent.filename === controllerPath) {
     return db;
   }
+  if (request === '../services/emailService' && parent.filename === controllerPath) {
+    return {
+      async sendTemplateEmail(templateKey, recipient, variables) {
+        emailCalls.push({ templateKey, recipient, variables });
+      },
+    };
+  }
   return originalLoad.call(this, request, parent, isMain);
 };
 
@@ -165,8 +197,13 @@ Module._load = originalLoad;
 
 function resetState() {
   state.calls = [];
+  emailCalls.length = 0;
   state.editors = [{ id: 'editor-1', nombre: 'Editora FESC' }];
-  state.reviewers = [{ id: 'reviewer-1', reviewer_nombre: 'Revisor FESC' }];
+  state.reviewers = [{
+    id: 'reviewer-1',
+    reviewer_nombre: 'Revisor FESC',
+    email: 'reviewer@example.org',
+  }];
   state.listRows = [];
   state.listTotal = 0;
   state.stats = {
@@ -186,6 +223,9 @@ function resetState() {
   state.submission = {
     id: 'submission-1',
     autor_id: 'author-1',
+    titulo: 'Artículo de prueba',
+    nombre_autor: 'Autora de prueba',
+    email_autor: 'author@example.org',
     estado: 'enviado',
     issue_id: null,
     editor_id: null,
@@ -323,6 +363,49 @@ test('updates an editorial status and returns the updated submission', async () 
     action: 'status_updated',
     description: 'Estado actualizado a En revisión.',
   }]);
+  assert.equal(emailCalls.length, 0);
+});
+
+test('sends the accepted decision email only when the status changes', async () => {
+  resetState();
+  state.submission.estado = 'en_revision';
+  const res = response();
+
+  await controller.updateSubmissionStatus(request({
+    estado: 'accepted',
+    comentarios_editor: '  Excelente trabajo.  ',
+  }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(emailCalls.length, 1);
+  assert.deepEqual(emailCalls[0], {
+    templateKey: 'submission_accepted',
+    recipient: 'author@example.org',
+    variables: {
+      nombre_autor: 'Autora de prueba',
+      titulo_articulo: 'Artículo de prueba',
+      rol: 'autor',
+      estado: 'Publicado',
+      comentarios_editor: 'Excelente trabajo.',
+      submission_id: 'submission-1',
+    },
+  });
+
+  await controller.updateSubmissionStatus(request({ estado: 'accepted' }), response());
+  assert.equal(emailCalls.length, 1);
+});
+
+test('sends changes-requested and rejected decision emails using their templates', async () => {
+  resetState();
+  state.submission.estado = 'en_revision';
+
+  await controller.updateSubmissionStatus(request({ estado: 'changes_requested' }), response());
+  await controller.updateSubmissionStatus(request({ estado: 'rejected' }), response());
+
+  assert.deepEqual(emailCalls.map(({ templateKey }) => templateKey), [
+    'submission_changes_requested',
+    'submission_rejected',
+  ]);
 });
 
 test('saves optional editorial comments with a status decision', async () => {
@@ -465,6 +548,17 @@ test('assigns a reviewer with a valid deadline', async () => {
   });
   assert.equal(state.auditLogs[0].action, 'reviewer_assigned');
   assert.equal(state.auditLogs[0].description, 'Revisor Revisor FESC asignado con fecha límite 2026-11-20.');
+  assert.deepEqual(emailCalls[0], {
+    templateKey: 'reviewer_assigned',
+    recipient: 'reviewer@example.org',
+    variables: {
+      nombre_revisor: 'Revisor FESC',
+      nombre_autor: 'Autora de prueba',
+      titulo_articulo: 'Artículo de prueba',
+      fecha_limite: '2026-11-20',
+      rol: 'revisor',
+    },
+  });
 });
 
 test('returns a submission audit history in chronological order', async () => {

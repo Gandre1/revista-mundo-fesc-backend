@@ -1,6 +1,55 @@
 const db = require('../config/db');
 const fs = require('fs');
 const path = require('path');
+const emailService = require('../services/emailService');
+
+const statusMap = {
+  nuevo: 'Nuevo',
+  enviado: 'enviado',
+  submitted: 'enviado',
+  en_revision: 'en_revision',
+  'en revisión': 'en_revision',
+  under_review: 'en_revision',
+  evaluado: 'en_revision',
+  evaluated: 'en_revision',
+  revisiones_requeridas: 'revisiones_requeridas',
+  'revisiones requeridas': 'revisiones_requeridas',
+  revisions_required: 'revisiones_requeridas',
+  changes_requested: 'revisiones_requeridas',
+  'changes requested': 'revisiones_requeridas',
+  ajustes_solicitados: 'revisiones_requeridas',
+  aceptado: 'publicado',
+  accepted: 'publicado',
+  aprobado: 'publicado',
+  approved: 'publicado',
+  rechazado: 'rechazado',
+  rejected: 'rechazado',
+  publicado: 'publicado',
+  published: 'publicado',
+};
+
+const statusEmailTemplate = {
+  publicado: 'submission_accepted',
+  rechazado: 'submission_rejected',
+  revisiones_requeridas: 'submission_changes_requested',
+};
+
+const normalizeStatus = (status) => {
+  const normalized = typeof status === 'string' ? status.trim().toLowerCase() : '';
+  return statusMap[normalized] || normalized;
+};
+
+const sendWorkflowEmail = async (templateKey, recipient, variables) => {
+  if (!recipient) {
+    console.warn(`No se envió la plantilla "${templateKey}": el destinatario no tiene correo registrado.`);
+    return;
+  }
+  try {
+    await emailService.sendTemplateEmail(templateKey, recipient, variables);
+  } catch (error) {
+    console.error(`Error al enviar la plantilla de correo "${templateKey}":`, error);
+  }
+};
 
 const createNotification = async (userId, submissionId, title, message) => {
   if (!userId) return;
@@ -358,7 +407,7 @@ exports.assignSubmissionReviewer = async (req, res) => {
     }
 
     const [reviewers] = await db.query(
-      `SELECT id, CONCAT_WS(' ', nombre, apellidos) AS reviewer_nombre
+      `SELECT id, CONCAT_WS(' ', nombre, apellidos) AS reviewer_nombre, email
        FROM users WHERE id = ? AND role = 'reviewer'`,
       [reviewer_id]
     );
@@ -382,6 +431,13 @@ exports.assignSubmissionReviewer = async (req, res) => {
         `Revisor ${reviewers[0].reviewer_nombre || 'Usuario no disponible'} asignado con fecha límite ${fecha_limite}.`,
       ]
     );
+    const [submissionDetails] = await db.query(
+      `SELECT s.titulo, author.nombre AS nombre_autor, author.apellidos AS apellidos_autor
+       FROM submissions s
+       LEFT JOIN users author ON author.id = s.autor_id
+       WHERE s.id = ?`,
+      [id]
+    );
     await createNotification(
       reviewer_id,
       id,
@@ -392,6 +448,19 @@ exports.assignSubmissionReviewer = async (req, res) => {
       id,
       'Revisor asignado',
       `Se asignó un revisor al envío con fecha límite ${fecha_limite}.`
+    );
+    await sendWorkflowEmail(
+      'reviewer_assigned',
+      reviewers[0].email,
+      {
+        nombre_revisor: reviewers[0].reviewer_nombre || '',
+        nombre_autor: [submissionDetails[0]?.nombre_autor, submissionDetails[0]?.apellidos_autor]
+          .filter(Boolean)
+          .join(' '),
+        titulo_articulo: submissionDetails[0]?.titulo || '',
+        fecha_limite,
+        rol: 'revisor',
+      }
     );
 
     return res.status(200).json({
@@ -417,27 +486,6 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
 
   try {
     if (Object.prototype.hasOwnProperty.call(fields, 'estado')) {
-      const statusMap = {
-        nuevo: 'Nuevo',
-        enviado: 'enviado',
-        submitted: 'enviado',
-        en_revision: 'en_revision',
-        'en revisión': 'en_revision',
-        under_review: 'en_revision',
-        evaluado: 'en_revision',
-        evaluated: 'en_revision',
-        revisiones_requeridas: 'revisiones_requeridas',
-        'revisiones requeridas': 'revisiones_requeridas',
-        revisions_required: 'revisiones_requeridas',
-        aceptado: 'publicado',
-        accepted: 'publicado',
-        aprobado: 'publicado',
-        approved: 'publicado',
-        rechazado: 'rechazado',
-        rejected: 'rechazado',
-        publicado: 'publicado',
-        published: 'publicado',
-      };
       const normalizedStatus = typeof estado === 'string' ? estado.trim().toLowerCase() : '';
       if (!Object.prototype.hasOwnProperty.call(statusMap, normalizedStatus)) {
         return res.status(400).json({ message: 'El estado indicado no es válido.' });
@@ -479,10 +527,16 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
       return res.status(400).json({ message: 'No se indicaron cambios editoriales.' });
     }
 
-    const [submissions] = await db.query('SELECT id FROM submissions WHERE id = ?', [id]);
+    const [submissions] = await db.query(
+      Object.prototype.hasOwnProperty.call(fields, 'estado')
+        ? 'SELECT id, estado FROM submissions WHERE id = ?'
+        : 'SELECT id FROM submissions WHERE id = ?',
+      [id]
+    );
     if (submissions.length === 0) {
       return res.status(404).json({ message: 'Envío no encontrado.' });
     }
+    const previousStatus = submissions[0].estado;
 
     const pdfFieldWasEmpty = !Object.prototype.hasOwnProperty.call(fields, 'pdf_galley_url')
       || !fields.pdf_galley_url?.trim();
@@ -508,9 +562,12 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
     values.push(id);
     await db.query(`UPDATE submissions SET ${updates.join(', ')} WHERE id = ?`, values);
     const [updatedSubmissions] = await db.query(
-      `SELECT s.id, s.estado, s.editor_id,
+      `SELECT s.id, s.estado, s.editor_id, s.titulo, s.comentarios_editor,
+              CONCAT_WS(' ', author.nombre, author.apellidos) AS nombre_autor,
+              author.email AS email_autor,
               CONCAT_WS(' ', editor.nombre, editor.apellidos) AS editor_nombre
        FROM submissions s
+       LEFT JOIN users author ON author.id = s.autor_id
        LEFT JOIN users editor ON editor.id = s.editor_id
        WHERE s.id = ?`,
       [id]
@@ -532,6 +589,20 @@ const saveEditorialFields = async (req, res, fields = req.body) => {
         'Estado del envío actualizado',
         `El estado del envío cambió a ${statusLabel}.`
       );
+      const emailTemplateKey = statusEmailTemplate[updatedStatus];
+      if (
+        emailTemplateKey &&
+        normalizeStatus(previousStatus) !== updatedStatus
+      ) {
+        await sendWorkflowEmail(emailTemplateKey, updatedSubmissions[0].email_autor, {
+          nombre_autor: updatedSubmissions[0].nombre_autor || '',
+          titulo_articulo: updatedSubmissions[0].titulo || '',
+          rol: 'autor',
+          estado: statusLabel,
+          comentarios_editor: updatedSubmissions[0].comentarios_editor || '',
+          submission_id: id,
+        });
+      }
     }
     if (Object.prototype.hasOwnProperty.call(fields, 'editor_id')) {
       const description = editor_id

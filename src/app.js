@@ -16,6 +16,7 @@ const issueRoutes = require('./routes/issueRoutes');
 const publicRoutes = require('./routes/publicRoutes');
 const exportRoutes = require('./routes/exportRoutes');
 const issueController = require('./controllers/issueController');
+const emailService = require('./services/emailService');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -106,6 +107,7 @@ const startServer = async () => {
     await db.query('SELECT 1');
     await ensureIssueCoverColumn();
     await ensureEmailTemplatesTable();
+    await emailService.ensureDefaultTemplates();
     await normalizeSubmissionStatuses();
     console.log('Conexión a la base de datos establecida correctamente.');
     await issueController.promoteScheduledIssues();

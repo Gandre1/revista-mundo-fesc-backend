@@ -47,11 +47,11 @@ revista_mundo_fesc
 ```
 
 5. En phpMyAdmin, selecciona `revista_mundo_fesc` e importa `database/schema.sql`.
-6. Para cargar registros locales de revisión, importa opcionalmente `database/seed.sql`.
+6. Aplica `database/migrations/009_seed_editorial_email_templates.sql` para cargar las plantillas predeterminadas. Para cargar además registros locales de revisión, importa opcionalmente `database/seed.sql`.
 
 > **Desarrollo únicamente:** `database/schema.sql` elimina y vuelve a crear las tablas. No lo ejecutes sobre una base con información que quieras conservar ni en producción. Detén el backend antes de importarlo.
 
-El esquema crea la estructura y una identidad local sin contraseña (`maria.garcia@prueba.com`) necesaria para relacionar los envíos del perfil de autor. No sirve para iniciar sesión. `seed.sql` es opcional, contiene registros para revisar los distintos estados editoriales y se puede importar más de una vez. Sus cuentas tampoco tienen contraseña. Para una base existente, aplica las migraciones de `database/migrations/` en orden; incluyen `submission_reviews` y la bitácora `submission_audit_logs`.
+El esquema crea la estructura y una identidad local sin contraseña (`maria.garcia@prueba.com`) necesaria para relacionar los envíos del perfil de autor. No sirve para iniciar sesión. `seed.sql` también incluye las plantillas predeterminadas y se puede importar más de una vez. Sus cuentas tampoco tienen contraseña. Para una base existente, aplica las migraciones de `database/migrations/` en orden; incluyen `submission_reviews`, la bitácora `submission_audit_logs` y las plantillas de correo.
 
 ---
 
@@ -71,11 +71,20 @@ DB_PORT=3306
 JWT_SECRET=fesc_secret_key_2026_revista_mundo
 JWT_EXPIRES_IN=24h
 DEV_AUTH_BYPASS=false
+
+SMTP_HOST=smtp.example.org
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=usuario_smtp
+SMTP_PASS=contrasena_smtp
+SMTP_FROM="Revista Mundo FESC <no-reply@example.org>"
 ```
 
 Para usar el frontend con los perfiles locales, configura `DEV_AUTH_BYPASS=true` únicamente en tu `.env` local y reinicia el backend. El rol seleccionado se envía como `X-Dev-Role`; el backend lo acepta solo fuera de producción y si la variable está habilitada. Las acciones de autor usan la identidad local incluida en el esquema. Estas identidades no permiten iniciar sesión.
 
 No uses este modo en producción. Con un token JWT real, el backend ignora el rol mock y valida el token normalmente.
+
+El envío de correo usa Nodemailer. Configura las variables `SMTP_*` con los datos del proveedor; `SMTP_USER` y `SMTP_PASS` son opcionales solo si el servidor permite relay sin autenticación. Para bases existentes, aplica también `database/migrations/009_seed_editorial_email_templates.sql`. En una instalación local nueva, `database/seed.sql` agrega las plantillas predeterminadas. Las plantillas se pueden personalizar desde la gestión de plantillas de correo.
 
 ---
 
@@ -145,6 +154,8 @@ Todas estas rutas requieren autenticación y el rol `admin` o `editor`. Las plan
 | PUT | `/api/email-templates/:templateKey` | Reemplazar `name`, `subject`, `body_html` y, opcionalmente, `variables_disponibles` |
 
 Ejemplo de marcadores admitidos: `{{nombre_autor}}`, `{{titulo_articulo}}` y `{{rol}}`. La respuesta expone `variables_disponibles` como una lista.
+
+Las decisiones aceptada, rechazada y cambios solicitados envían, al cambiar realmente el estado, las plantillas `submission_accepted`, `submission_rejected` y `submission_changes_requested` al correo del autor. Asignar un evaluador envía `reviewer_assigned` al evaluador. Las plantillas incluyen además `{{estado}}`, `{{comentarios_editor}}`, `{{submission_id}}`, `{{nombre_revisor}}` y `{{fecha_limite}}` según corresponda. Si falta SMTP, una plantilla o una variable, el error queda registrado en el backend y no revierte la acción editorial ya guardada.
 
 ---
 
