@@ -157,6 +157,16 @@ Ejemplo de marcadores admitidos: `{{nombre_autor}}`, `{{titulo_articulo}}` y `{{
 
 Las decisiones aceptada, rechazada y cambios solicitados envían, al cambiar realmente el estado, las plantillas `submission_accepted`, `submission_rejected` y `submission_changes_requested` al correo del autor. Asignar un evaluador envía `reviewer_assigned` al evaluador. Las plantillas incluyen además `{{estado}}`, `{{comentarios_editor}}`, `{{submission_id}}`, `{{nombre_revisor}}` y `{{fecha_limite}}` según corresponda. Si falta SMTP, una plantilla o una variable, el error queda registrado en el backend y no revierte la acción editorial ya guardada.
 
+### Analíticas editoriales
+
+Estos endpoints requieren autenticación y el rol `admin` o `editor`:
+
+| Método | Endpoint | Descripción |
+| ------ | -------- | ----------- |
+| GET | `/api/analytics/overview` | Conteo de artículos por estado, tasa de aceptación y usuarios por rol |
+| GET | `/api/analytics/editorial-times` | Promedio de días hasta la decisión editorial y cumplimiento de revisiones asignadas |
+| GET | `/api/analytics/issues-summary` | Artículos publicados agrupados por número, volumen y fecha de publicación |
+
 ---
 
 ### 👥 Autores / Coautores

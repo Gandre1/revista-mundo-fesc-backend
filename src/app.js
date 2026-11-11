@@ -15,6 +15,7 @@ const emailTemplateRoutes = require('./routes/emailTemplateRoutes');
 const issueRoutes = require('./routes/issueRoutes');
 const publicRoutes = require('./routes/publicRoutes');
 const exportRoutes = require('./routes/exportRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 const issueController = require('./controllers/issueController');
 const emailService = require('./services/emailService');
 
@@ -41,6 +42,7 @@ app.use('/api/email-templates', emailTemplateRoutes);
 app.use('/api/issues', issueRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api', exportRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 app.use((error, req, res, next) => {
   if (error instanceof multer.MulterError) {
