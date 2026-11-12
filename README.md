@@ -163,9 +163,12 @@ Estos endpoints requieren autenticación y el rol `admin` o `editor`:
 
 | Método | Endpoint | Descripción |
 | ------ | -------- | ----------- |
-| GET | `/api/analytics/overview` | Conteo de artículos por estado, tasa de aceptación y usuarios por rol |
-| GET | `/api/analytics/editorial-times` | Promedio de días hasta la decisión editorial y cumplimiento de revisiones asignadas |
-| GET | `/api/analytics/issues-summary` | Artículos publicados agrupados por número, volumen y fecha de publicación |
+| GET | `/api/analytics/overview` | Conteo filtrable de artículos por estado, tasa de aceptación y usuarios por rol |
+| GET | `/api/analytics/editorial-times` | Promedio filtrable de días hasta la decisión editorial y cumplimiento de revisiones asignadas |
+| GET | `/api/analytics/issues-summary` | Artículos publicados filtrados y agrupados por número, volumen y fecha de publicación |
+| GET | `/api/analytics/reviewers` | Rendimiento filtrable por evaluador: asignadas, completadas, pendientes, tasa de cumplimiento y días promedio de respuesta |
+
+Los cuatro endpoints aceptan opcionalmente `startDate` y `endDate` (`AAAA-MM-DD`, inclusivos), `issueId` (identificador del número/volumen) y `section` (nombre exacto de la sección). Las fechas se aplican a `fecha_envio`; las consultas usan parámetros enlazados. Por ejemplo: `/api/analytics/overview?startDate=2026-01-01&endDate=2026-12-31&issueId=4&section=Art%C3%ADculos%20de%20Investigaci%C3%B3n`. Los días promedio de respuesta se calculan para revisiones completadas con la diferencia entre la asignación y la última actualización del envío; si no hay revisiones completadas, el valor es `null`.
 
 ---
 

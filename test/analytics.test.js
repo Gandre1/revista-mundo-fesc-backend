@@ -8,9 +8,9 @@ const jwt = require('jsonwebtoken');
 const controllerPath = require.resolve('../src/controllers/analyticsController');
 const state = { calls: [] };
 const db = {
-  async query(sql) {
+  async query(sql, values = []) {
     const normalizedSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
-    state.calls.push(normalizedSql);
+    state.calls.push({ sql: normalizedSql, values });
 
     if (normalizedSql.includes('from submissions') && normalizedSql.includes('group by status')) {
       return [[
@@ -35,6 +35,24 @@ const db = {
     }
     if (normalizedSql.startsWith('select count(*) as assigned')) {
       return [[{ assigned: 5, completed: 3 }]];
+    }
+    if (normalizedSql.startsWith('select concat_ws')) {
+      return [[
+        {
+          nombre: 'Ana Evaluadora',
+          correo: 'ana@example.org',
+          assigned_reviews: '4',
+          completed_reviews: '2',
+          average_response_days: '5.256',
+        },
+        {
+          nombre: 'Eva Sin asignaciones',
+          correo: 'eva@example.org',
+          assigned_reviews: '0',
+          completed_reviews: null,
+          average_response_days: null,
+        },
+      ]];
     }
     if (normalizedSql.startsWith('select i.id, i.volume')) {
       return [[{
@@ -96,6 +114,10 @@ test('requires authentication and restricts analytics to editorial roles', async
   const authorResponse = await get('/overview', 'author');
   assert.equal(authorResponse.status, 403);
   assert.equal(state.calls.length, 0);
+
+  const reviewerResponse = await get('/reviewers', 'reviewer');
+  assert.equal(reviewerResponse.status, 403);
+  assert.equal(state.calls.length, 0);
 });
 
 test('overview returns article totals, acceptance rate, and users by role', async () => {
@@ -117,6 +139,7 @@ test('overview returns article totals, acceptance rate, and users by role', asyn
     usersByRole: { admin: 1, editor: 2, reviewer: 3, author: 8 },
   });
   assert.equal(state.calls.length, 2);
+  assert.deepEqual(state.calls[0].values, []);
 });
 
 test('editorial times returns average decision days and review completion statistics', async () => {
@@ -128,10 +151,11 @@ test('editorial times returns average decision days and review completion statis
     averageDecisionDays: 4.5,
     reviews: { assigned: 5, completed: 3, pending: 2, completionRate: 60 },
   });
-  assert.ok(state.calls.some((sql) => sql.includes('submission_audit_logs')));
+  assert.ok(state.calls.some(({ sql }) => sql.includes('submission_audit_logs')));
 });
 
 test('issues summary includes published article counts and issue publication dates', async () => {
+  state.calls = [];
   const response = await get('/issues-summary', 'admin');
 
   assert.equal(response.status, 200);
@@ -146,4 +170,67 @@ test('issues summary includes published article counts and issue publication dat
       articles_count: 7,
     }],
   });
+  assert.equal(state.calls.length, 1);
+});
+
+test('all analytics endpoints apply date, issue, and section filters with bound parameters', async () => {
+  const filters = '?startDate=2026-01-01&endDate=2026-12-31&issueId=4&section=Art%C3%ADculos%20de%20Investigaci%C3%B3n';
+  state.calls = [];
+
+  for (const endpoint of ['/overview', '/editorial-times', '/issues-summary', '/reviewers']) {
+    const response = await get(`${endpoint}${filters}`, 'editor');
+    assert.equal(response.status, 200);
+  }
+
+  const filteredQueries = state.calls.filter(({ sql }) => sql.includes('issue_id = ?') && sql.includes('seccion = ?'));
+  assert.ok(filteredQueries.length >= 5);
+  assert.ok(filteredQueries.every(({ sql }) => (
+    sql.includes('fecha_envio >= ?')
+      && sql.includes('fecha_envio < date_add(?, interval 1 day)')
+  )));
+  assert.ok(filteredQueries.some(({ values }) => (
+    values.includes('2026-01-01 00:00:00')
+      && values.includes('2026-12-31 00:00:00')
+      && values.includes(4)
+      && values.includes('Artículos de Investigación')
+  )));
+});
+
+test('reviewer performance returns assignment, completion, compliance, and response metrics', async () => {
+  state.calls = [];
+  const response = await get('/reviewers', 'admin');
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, {
+    reviewers: [
+      {
+        nombre: 'Ana Evaluadora',
+        correo: 'ana@example.org',
+        assignedReviews: 4,
+        completedReviews: 2,
+        pendingReviews: 2,
+        completionRate: 50,
+        averageResponseDays: 5.26,
+      },
+      {
+        nombre: 'Eva Sin asignaciones',
+        correo: 'eva@example.org',
+        assignedReviews: 0,
+        completedReviews: 0,
+        pendingReviews: 0,
+        completionRate: 0,
+        averageResponseDays: null,
+      },
+    ],
+  });
+  assert.ok(state.calls[0].sql.includes("where u.role = 'reviewer'"));
+});
+
+test('rejects invalid analytics filters without querying the database', async () => {
+  state.calls = [];
+  const response = await get('/overview?startDate=2026-02-30', 'admin');
+
+  assert.equal(response.status, 400);
+  assert.match(response.body.message, /fecha/i);
+  assert.equal(state.calls.length, 0);
 });

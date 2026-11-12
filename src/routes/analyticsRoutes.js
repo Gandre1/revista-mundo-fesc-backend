@@ -14,5 +14,6 @@ router.use(authenticateToken, requireEditorialRole);
 router.get('/overview', analyticsController.getOverview);
 router.get('/editorial-times', analyticsController.getEditorialTimes);
 router.get('/issues-summary', analyticsController.getIssuesSummary);
+router.get('/reviewers', analyticsController.getReviewers);
 
 module.exports = router;
