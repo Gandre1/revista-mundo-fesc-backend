@@ -11,6 +11,7 @@ const requireEditorialRole = (req, res, next) => {
 };
 
 router.use(authenticateToken, requireEditorialRole);
+router.get('/export/csv', analyticsController.exportCsv);
 router.get('/overview', analyticsController.getOverview);
 router.get('/editorial-times', analyticsController.getEditorialTimes);
 router.get('/issues-summary', analyticsController.getIssuesSummary);

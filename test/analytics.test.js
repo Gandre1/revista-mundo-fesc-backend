@@ -107,12 +107,28 @@ async function get(path, role) {
   return { status: response.status, body: await response.json() };
 }
 
+async function getCsv(path, role) {
+  const headers = role ? { Authorization: `Bearer ${tokenFor(role)}` } : {};
+  const response = await fetch(`${baseUrl}/api/analytics${path}`, { headers });
+  const body = new TextDecoder('utf-8', { ignoreBOM: true }).decode(await response.arrayBuffer());
+  return {
+    status: response.status,
+    contentType: response.headers.get('content-type'),
+    contentDisposition: response.headers.get('content-disposition'),
+    body,
+  };
+}
+
 test('requires authentication and restricts analytics to editorial roles', async () => {
   const anonymousResponse = await get('/overview');
   assert.equal(anonymousResponse.status, 401);
+  const anonymousCsvResponse = await getCsv('/export/csv');
+  assert.equal(anonymousCsvResponse.status, 401);
 
   const authorResponse = await get('/overview', 'author');
   assert.equal(authorResponse.status, 403);
+  const authorCsvResponse = await getCsv('/export/csv', 'author');
+  assert.equal(authorCsvResponse.status, 403);
   assert.equal(state.calls.length, 0);
 
   const reviewerResponse = await get('/reviewers', 'reviewer');
@@ -152,6 +168,31 @@ test('editorial times returns average decision days and review completion statis
     reviews: { assigned: 5, completed: 3, pending: 2, completionRate: 60 },
   });
   assert.ok(state.calls.some(({ sql }) => sql.includes('submission_audit_logs')));
+});
+
+test('CSV export includes analytics and editorial metrics, download headers, and filters', async () => {
+  state.calls = [];
+  const filters = '?startDate=2026-01-01&endDate=2026-12-31&issueId=4&section=Art%C3%ADculos%20de%20Investigaci%C3%B3n';
+  const response = await getCsv(`/export/csv${filters}`, 'editor');
+
+  assert.equal(response.status, 200);
+  assert.match(response.contentType, /^text\/csv(?:;|$)/);
+  assert.equal(response.contentDisposition, 'attachment; filename="analytics-report.csv"');
+  assert.ok(response.body.startsWith('\uFEFF"Categoría","Métrica","Valor"'));
+  assert.match(response.body, /"Resumen","Total de artículos","10"/);
+  assert.match(response.body, /"Artículos por estado","published","2"/);
+  assert.match(response.body, /"Resumen","Tasa de aceptación \(%\)","66\.67"/);
+  assert.match(response.body, /"Métricas editoriales","Promedio de días hasta la decisión","4\.5"/);
+  assert.match(response.body, /"Revisiones","Pendientes","2"/);
+
+  const filteredQueries = state.calls.filter(({ sql }) => sql.includes('issue_id = ?') && sql.includes('seccion = ?'));
+  assert.equal(filteredQueries.length, 3);
+  assert.ok(filteredQueries.every(({ values }) => (
+    values.includes('2026-01-01 00:00:00')
+      && values.includes('2026-12-31 00:00:00')
+      && values.includes(4)
+      && values.includes('Artículos de Investigación')
+  )));
 });
 
 test('issues summary includes published article counts and issue publication dates', async () => {
