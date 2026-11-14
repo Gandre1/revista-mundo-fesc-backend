@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authenticateToken = require('../middlewares/authMiddleware');
 const emailTemplateController = require('../controllers/emailTemplateController');
+const auditMiddleware = require('../middlewares/auditMiddleware');
 
 const requireEditorialRole = (req, res, next) => {
   if (!['admin', 'editor'].includes(req.user?.role)) {
@@ -13,7 +14,7 @@ const requireEditorialRole = (req, res, next) => {
 router.use(authenticateToken, requireEditorialRole);
 router.get('/', emailTemplateController.listTemplates);
 router.get('/:templateKey', emailTemplateController.getTemplateByKey);
-router.post('/', emailTemplateController.createTemplate);
-router.put('/:templateKey', emailTemplateController.updateTemplate);
+router.post('/', auditMiddleware({ targetModel: 'EmailTemplate' }), emailTemplateController.createTemplate);
+router.put('/:templateKey', auditMiddleware({ targetModel: 'EmailTemplate' }), emailTemplateController.updateTemplate);
 
 module.exports = router;

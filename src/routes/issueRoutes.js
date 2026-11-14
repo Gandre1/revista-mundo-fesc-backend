@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const issueController = require('../controllers/issueController');
 const authenticateToken = require('../middlewares/authMiddleware');
+const auditMiddleware = require('../middlewares/auditMiddleware');
 const multer = require('multer');
 const path = require('path');
 
@@ -54,10 +55,10 @@ const requireEditorialRole = (req, res, next) => {
 };
 
 router.get('/', issueController.listIssues);
-router.post('/', authenticateToken, requireEditorialRole, issueController.createIssue);
-router.patch('/:id', authenticateToken, requireEditorialRole, issueController.updateIssue);
-router.patch('/:id/cover', authenticateToken, requireEditorialRole, handleCoverUpload, issueController.uploadIssueCover);
-router.put('/:id', authenticateToken, requireEditorialRole, issueController.updateIssue);
-router.delete('/:id', authenticateToken, requireEditorialRole, issueController.deleteIssue);
+router.post('/', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Issue' }), issueController.createIssue);
+router.patch('/:id', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Issue' }), issueController.updateIssue);
+router.patch('/:id/cover', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Issue' }), handleCoverUpload, issueController.uploadIssueCover);
+router.put('/:id', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Issue' }), issueController.updateIssue);
+router.delete('/:id', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Issue' }), issueController.deleteIssue);
 
 module.exports = router;

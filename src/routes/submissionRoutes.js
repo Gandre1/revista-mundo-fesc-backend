@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const submissionController = require('../controllers/submissionController');
 const authenticateToken = require('../middlewares/authMiddleware');
+const auditMiddleware = require('../middlewares/auditMiddleware');
 const upload = require('../middlewares/uploadMiddleware');
 const multer = require('multer');
 const path = require('path');
@@ -34,7 +35,7 @@ const requireEditorialRole = (req, res, next) => {
   next();
 };
 
-router.post('/', authenticateToken, submissionController.createSubmission);
+router.post('/', authenticateToken, auditMiddleware({ targetModel: 'Submission' }), submissionController.createSubmission);
 router.get('/', authenticateToken, requireEditorialRole, submissionController.getAllSubmissions);
 router.get('/stats', authenticateToken, requireEditorialRole, submissionController.getSubmissionStats);
 router.get('/my-submissions', authenticateToken, submissionController.getMySubmissions);
@@ -42,18 +43,18 @@ router.get('/editors', authenticateToken, requireEditorialRole, submissionContro
 router.get('/reviewers', authenticateToken, requireEditorialRole, submissionController.getReviewers);
 router.get('/:id/audit-logs', authenticateToken, requireEditorialRole, submissionController.getSubmissionAuditLogs);
 router.get('/:id', authenticateToken, submissionController.getSubmissionById);
-router.put('/:id', authenticateToken, submissionController.updateSubmission);
-router.delete('/:id', authenticateToken, submissionController.deleteDraft);
-router.patch('/:id/editorial', authenticateToken, requireEditorialRole, submissionController.updateEditorialFields);
-router.patch('/:id/metadata', authenticateToken, requireEditorialRole, submissionController.updatePublicationMetadata);
+router.put('/:id', authenticateToken, auditMiddleware({ targetModel: 'Submission' }), submissionController.updateSubmission);
+router.delete('/:id', authenticateToken, auditMiddleware({ targetModel: 'Submission' }), submissionController.deleteDraft);
+router.patch('/:id/editorial', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.updateEditorialFields);
+router.patch('/:id/metadata', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.updatePublicationMetadata);
 router.patch('/:id/galleys', authenticateToken, requireEditorialRole, galleyUpload.fields([
   { name: 'pdf', maxCount: 1 },
   { name: 'html', maxCount: 1 },
-]), submissionController.updatePublicationGalleys);
-router.patch('/:id/status', authenticateToken, requireEditorialRole, submissionController.updateSubmissionStatus);
-router.patch('/:id/assign-editor', authenticateToken, requireEditorialRole, submissionController.assignSubmissionEditor);
-router.patch('/:id/assign-reviewer', authenticateToken, requireEditorialRole, submissionController.assignSubmissionReviewer);
-router.patch('/:id/assign-issue', authenticateToken, requireEditorialRole, submissionController.assignSubmissionIssue);
+]), auditMiddleware({ targetModel: 'Submission' }), submissionController.updatePublicationGalleys);
+router.patch('/:id/status', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.updateSubmissionStatus);
+router.patch('/:id/assign-editor', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.assignSubmissionEditor);
+router.patch('/:id/assign-reviewer', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.assignSubmissionReviewer);
+router.patch('/:id/assign-issue', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.assignSubmissionIssue);
 
 // Endpoint temporal de prueba de upload
 router.post('/test-upload', upload.single('archivo'), (req, res) => {
@@ -73,6 +74,6 @@ router.post('/test-upload', upload.single('archivo'), (req, res) => {
 });
 
 // Ruta para finalizar el envío de un artículo
-router.patch('/:id/finalize', authenticateToken, submissionController.finalizeSubmission);
+router.patch('/:id/finalize', authenticateToken, auditMiddleware({ targetModel: 'Submission' }), submissionController.finalizeSubmission);
 
 module.exports = router;
