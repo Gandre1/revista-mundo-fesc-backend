@@ -16,6 +16,7 @@ const issueRoutes = require('./routes/issueRoutes');
 const publicRoutes = require('./routes/publicRoutes');
 const exportRoutes = require('./routes/exportRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
+const auditRoutes = require('./routes/auditRoutes');
 const issueController = require('./controllers/issueController');
 const emailService = require('./services/emailService');
 
@@ -43,6 +44,7 @@ app.use('/api/issues', issueRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api', exportRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/audit-logs', auditRoutes);
 
 app.use((error, req, res, next) => {
   if (error instanceof multer.MulterError) {
@@ -91,6 +93,26 @@ const ensureEmailTemplatesTable = async () => {
   );
 };
 
+const ensureAuditLogsTable = async () => {
+  await db.query(
+    `CREATE TABLE IF NOT EXISTS audit_logs (
+      id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+      user_id varchar(36) DEFAULT NULL,
+      action varchar(50) NOT NULL,
+      target_model varchar(100) NOT NULL,
+      target_id varchar(100) DEFAULT NULL,
+      details JSON NOT NULL,
+      ip_address varchar(45) DEFAULT NULL,
+      created_at timestamp NOT NULL DEFAULT current_timestamp(),
+      updated_at timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+      PRIMARY KEY (id),
+      KEY audit_logs_user_created_idx (user_id, created_at),
+      KEY audit_logs_target_idx (target_model, target_id),
+      CONSTRAINT audit_logs_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+  );
+};
+
 const normalizeSubmissionStatuses = async () => {
   await db.query(
     `UPDATE submissions
@@ -109,6 +131,7 @@ const startServer = async () => {
     await db.query('SELECT 1');
     await ensureIssueCoverColumn();
     await ensureEmailTemplatesTable();
+    await ensureAuditLogsTable();
     await emailService.ensureDefaultTemplates();
     await normalizeSubmissionStatuses();
     console.log('Conexión a la base de datos establecida correctamente.');

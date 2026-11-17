@@ -51,7 +51,7 @@ revista_mundo_fesc
 
 > **Desarrollo únicamente:** `database/schema.sql` elimina y vuelve a crear las tablas. No lo ejecutes sobre una base con información que quieras conservar ni en producción. Detén el backend antes de importarlo.
 
-El esquema crea la estructura y una identidad local sin contraseña (`maria.garcia@prueba.com`) necesaria para relacionar los envíos del perfil de autor. No sirve para iniciar sesión. `seed.sql` también incluye las plantillas predeterminadas y se puede importar más de una vez. Sus cuentas tampoco tienen contraseña. Para una base existente, aplica las migraciones de `database/migrations/` en orden; incluyen `submission_reviews`, la bitácora `submission_audit_logs` y las plantillas de correo.
+El esquema crea la estructura y una identidad local sin contraseña (`maria.garcia@prueba.com`) necesaria para relacionar los envíos del perfil de autor. No sirve para iniciar sesión. `seed.sql` también incluye las plantillas predeterminadas y se puede importar más de una vez. Sus cuentas tampoco tienen contraseña. Para una base existente, aplica las migraciones de `database/migrations/` en orden; incluyen `submission_reviews`, las bitácoras y las plantillas de correo. El backend también crea `audit_logs` al iniciar si la tabla aún no existe.
 
 ---
 
@@ -169,6 +169,18 @@ Estos endpoints requieren autenticación y el rol `admin` o `editor`:
 | GET | `/api/analytics/reviewers` | Rendimiento filtrable por evaluador: asignadas, completadas, pendientes, tasa de cumplimiento y días promedio de respuesta |
 
 Los cuatro endpoints aceptan opcionalmente `startDate` y `endDate` (`AAAA-MM-DD`, inclusivos), `issueId` (identificador del número/volumen) y `section` (nombre exacto de la sección). Las fechas se aplican a `fecha_envio`; las consultas usan parámetros enlazados. Por ejemplo: `/api/analytics/overview?startDate=2026-01-01&endDate=2026-12-31&issueId=4&section=Art%C3%ADculos%20de%20Investigaci%C3%B3n`. Los días promedio de respuesta se calculan para revisiones completadas con la diferencia entre la asignación y la última actualización del envío; si no hay revisiones completadas, el valor es `null`.
+
+### Logs de auditoría
+
+Estos endpoints requieren autenticación JWT y exclusivamente el rol `admin`:
+
+| Método | Endpoint | Descripción |
+| ------ | -------- | ----------- |
+| GET | `/api/audit-logs` | Lista logs con paginación (`page`, `limit`, máximo 100) y filtros opcionales `userId`, `action`, `target`, `startDate` y `endDate` |
+| GET | `/api/audit-logs/summary` | Devuelve el total de registros y el conteo agrupado por acción |
+
+El listado incluye el nombre y correo del usuario asociado, si existe, y ordena del más reciente al más antiguo.
+
 
 ---
 
