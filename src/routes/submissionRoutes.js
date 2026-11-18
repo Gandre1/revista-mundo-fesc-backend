@@ -26,7 +26,7 @@ const galleyUpload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-//router.use(authenticateToken);
+router.use(authenticateToken);
 
 const requireEditorialRole = (req, res, next) => {
   if (!['admin', 'editor'].includes(req.user.role)) {
@@ -35,26 +35,26 @@ const requireEditorialRole = (req, res, next) => {
   next();
 };
 
-router.post('/', authenticateToken, auditMiddleware({ targetModel: 'Submission' }), submissionController.createSubmission);
-router.get('/', authenticateToken, requireEditorialRole, submissionController.getAllSubmissions);
-router.get('/stats', authenticateToken, requireEditorialRole, submissionController.getSubmissionStats);
-router.get('/my-submissions', authenticateToken, submissionController.getMySubmissions);
-router.get('/editors', authenticateToken, requireEditorialRole, submissionController.getEditors);
-router.get('/reviewers', authenticateToken, requireEditorialRole, submissionController.getReviewers);
-router.get('/:id/audit-logs', authenticateToken, requireEditorialRole, submissionController.getSubmissionAuditLogs);
-router.get('/:id', authenticateToken, submissionController.getSubmissionById);
-router.put('/:id', authenticateToken, auditMiddleware({ targetModel: 'Submission' }), submissionController.updateSubmission);
-router.delete('/:id', authenticateToken, auditMiddleware({ targetModel: 'Submission' }), submissionController.deleteDraft);
-router.patch('/:id/editorial', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.updateEditorialFields);
-router.patch('/:id/metadata', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.updatePublicationMetadata);
-router.patch('/:id/galleys', authenticateToken, requireEditorialRole, galleyUpload.fields([
+router.post('/', auditMiddleware({ targetModel: 'Submission' }), submissionController.createSubmission);
+router.get('/', requireEditorialRole, submissionController.getAllSubmissions);
+router.get('/stats', requireEditorialRole, submissionController.getSubmissionStats);
+router.get('/my-submissions', submissionController.getMySubmissions);
+router.get('/editors', requireEditorialRole, submissionController.getEditors);
+router.get('/reviewers', requireEditorialRole, submissionController.getReviewers);
+router.get('/:id/audit-logs', requireEditorialRole, submissionController.getSubmissionAuditLogs);
+router.get('/:id', submissionController.getSubmissionById);
+router.put('/:id', auditMiddleware({ targetModel: 'Submission' }), submissionController.updateSubmission);
+router.delete('/:id', auditMiddleware({ targetModel: 'Submission' }), submissionController.deleteDraft);
+router.patch('/:id/editorial', requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.updateEditorialFields);
+router.patch('/:id/metadata', requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.updatePublicationMetadata);
+router.patch('/:id/galleys', requireEditorialRole, galleyUpload.fields([
   { name: 'pdf', maxCount: 1 },
   { name: 'html', maxCount: 1 },
 ]), auditMiddleware({ targetModel: 'Submission' }), submissionController.updatePublicationGalleys);
-router.patch('/:id/status', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.updateSubmissionStatus);
-router.patch('/:id/assign-editor', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.assignSubmissionEditor);
-router.patch('/:id/assign-reviewer', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.assignSubmissionReviewer);
-router.patch('/:id/assign-issue', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.assignSubmissionIssue);
+router.patch('/:id/status', requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.updateSubmissionStatus);
+router.patch('/:id/assign-editor', requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.assignSubmissionEditor);
+router.patch('/:id/assign-reviewer', requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.assignSubmissionReviewer);
+router.patch('/:id/assign-issue', requireEditorialRole, auditMiddleware({ targetModel: 'Submission' }), submissionController.assignSubmissionIssue);
 
 // Endpoint temporal de prueba de upload
 router.post('/test-upload', upload.single('archivo'), (req, res) => {
@@ -74,6 +74,6 @@ router.post('/test-upload', upload.single('archivo'), (req, res) => {
 });
 
 // Ruta para finalizar el envío de un artículo
-router.patch('/:id/finalize', authenticateToken, auditMiddleware({ targetModel: 'Submission' }), submissionController.finalizeSubmission);
+router.patch('/:id/finalize', auditMiddleware({ targetModel: 'Submission' }), submissionController.finalizeSubmission);
 
 module.exports = router;
