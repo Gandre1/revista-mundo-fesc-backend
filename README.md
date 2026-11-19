@@ -51,7 +51,7 @@ revista_mundo_fesc
 
 > **Desarrollo únicamente:** `database/schema.sql` elimina y vuelve a crear las tablas. No lo ejecutes sobre una base con información que quieras conservar ni en producción. Detén el backend antes de importarlo.
 
-El esquema crea la estructura y una identidad local sin contraseña (`maria.garcia@prueba.com`) necesaria para relacionar los envíos del perfil de autor. No sirve para iniciar sesión. `seed.sql` también incluye las plantillas predeterminadas y se puede importar más de una vez. Sus cuentas tampoco tienen contraseña. Para una base existente, aplica las migraciones de `database/migrations/` en orden; incluyen `submission_reviews`, las bitácoras y las plantillas de correo. El backend también crea `audit_logs` al iniciar si la tabla aún no existe.
+El esquema y `seed.sql` incluyen cuentas de prueba para desarrollo local. Se pueden usar para iniciar sesión con las contraseñas `admin123`, `editor123`, `revisor123` y `usuario123`, respectivamente. El correo de autor se conserva en el seed; los otros correos son `admin@fesc.edu.co`, `editor@fesc.edu.co` y `reviewer@fesc.edu.co`. No uses estas credenciales en producción. `seed.sql` también incluye las plantillas predeterminadas y se puede importar más de una vez. Para actualizar una base local existente, aplica `database/migrations/011_enable_local_test_account_logins.sql` o vuelve a importar `database/seed.sql`. Para una base existente, aplica las demás migraciones de `database/migrations/` en orden; incluyen `submission_reviews`, las bitácoras y las plantillas de correo. El backend también crea `audit_logs` al iniciar si la tabla aún no existe.
 
 ---
 
@@ -78,13 +78,16 @@ SMTP_SECURE=false
 SMTP_USER=usuario_smtp
 SMTP_PASS=contrasena_smtp
 SMTP_FROM="Revista Mundo FESC <no-reply@example.org>"
+FRONTEND_URL=http://localhost:5173
 ```
 
-Para usar el frontend con los perfiles locales, configura `DEV_AUTH_BYPASS=true` únicamente en tu `.env` local y reinicia el backend. El rol seleccionado se envía como `X-Dev-Role`; el backend lo acepta solo fuera de producción y si la variable está habilitada. Las acciones de autor usan la identidad local incluida en el esquema. Estas identidades no permiten iniciar sesión.
+Para usar el frontend con los perfiles locales, configura `DEV_AUTH_BYPASS=true` únicamente en tu `.env` local y reinicia el backend. El rol seleccionado se envía como `X-Dev-Role`; el backend lo acepta solo fuera de producción y si la variable está habilitada.
 
 No uses este modo en producción. Con un token JWT real, el backend ignora el rol mock y valida el token normalmente.
 
 El envío de correo usa Nodemailer. Configura las variables `SMTP_*` con los datos del proveedor; `SMTP_USER` y `SMTP_PASS` son opcionales solo si el servidor permite relay sin autenticación. Para bases existentes, aplica también `database/migrations/009_seed_editorial_email_templates.sql`. En una instalación local nueva, `database/seed.sql` agrega las plantillas predeterminadas. Las plantillas se pueden personalizar desde la gestión de plantillas de correo.
+
+`FRONTEND_URL` debe apuntar al origen del frontend para construir los enlaces de recuperación. Aplica `database/migrations/012_create_password_reset_tokens.sql` en todas las instalaciones, también después de importar `database/schema.sql`; los tokens se almacenan hasheados, vencen en una hora y solo pueden usarse una vez.
 
 ---
 

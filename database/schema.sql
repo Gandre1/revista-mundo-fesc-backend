@@ -181,6 +181,6 @@ CREATE TABLE `submission_audit_logs` (
   CONSTRAINT `submission_audit_logs_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Identidad local sin credenciales, requerida por la relacion submissions.autor_id.
+-- Cuenta local de prueba para relacionar los envíos del perfil de autor.
 INSERT INTO `users` (`id`, `nombre`, `apellidos`, `email`, `password`, `role`) VALUES
-('7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad', 'María', 'García Rodríguez', 'maria.garcia@prueba.com', NULL, 'author');
+('7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad', 'María', 'García Rodríguez', 'gexonrodriguez1822@gmail.com', '$2b$10$nRS5fvcJ3Wc0wO2bA8J1IOfLHenCBiW8IUq03zfcdeg1eBMYl/Uze', 'author');

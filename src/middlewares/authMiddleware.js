@@ -34,6 +34,9 @@ module.exports = (req, res, next) => {
     req.user = decoded; // Guarda los datos del usuario logueado en la petición
     next();
   } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'La sesión ha expirado. Inicia sesión nuevamente.' });
+    }
     return res.status(403).json({ message: 'Token inválido o expirado.' });
   }
 };

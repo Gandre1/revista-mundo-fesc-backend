@@ -8,5 +8,6 @@ router.use(authenticateToken);
 
 router.get('/profile', userController.getProfile);
 router.put('/profile', auditMiddleware({ targetModel: 'User' }), userController.updateProfile);
+router.put('/change-password', userController.changePassword);
 
 module.exports = router;

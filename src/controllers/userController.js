@@ -1,4 +1,6 @@
 const db = require('../config/db');
+const bcrypt = require('bcryptjs');
+const isValidPassword = require('../utils/passwordValidation');
 
 // OBTENER PERFIL DEL USUARIO LOGUEADO
 exports.getProfile = async (req, res) => {
@@ -64,5 +66,38 @@ exports.updateProfile = async (req, res) => {
   } catch (error) {
     console.error('Error al actualizar perfil:', error);
     res.status(500).json({ message: 'Error interno del servidor al actualizar perfil.' });
+  }
+};
+
+exports.changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (typeof currentPassword !== 'string' || !currentPassword ||
+      typeof newPassword !== 'string' || !newPassword) {
+    return res.status(400).json({ message: 'La contraseña actual y la nueva son obligatorias.' });
+  }
+  if (!isValidPassword(newPassword)) {
+    return res.status(400).json({
+      message: 'La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula, un número y un carácter especial.',
+    });
+  }
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ message: 'La nueva contraseña debe ser diferente de la actual.' });
+  }
+
+  try {
+    const [users] = await db.query('SELECT password FROM users WHERE id = ? LIMIT 1', [req.user.id]);
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+    if (!users[0].password || !(await bcrypt.compare(currentPassword, users[0].password))) {
+      return res.status(400).json({ message: 'La contraseña actual es incorrecta.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, req.user.id]);
+    return res.json({ message: 'Contraseña cambiada correctamente.' });
+  } catch (error) {
+    console.error('Error al cambiar contraseña:', error);
+    return res.status(500).json({ message: 'No fue posible cambiar la contraseña.' });
   }
 };

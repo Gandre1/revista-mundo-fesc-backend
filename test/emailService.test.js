@@ -129,3 +129,23 @@ test('rejects missing template variables and invalid SMTP configuration', async 
   );
   restoreEnvironment();
 });
+
+test('sends password reset links with escaped HTML content', async () => {
+  calls.transports.length = 0;
+  calls.messages.length = 0;
+  configureSmtp();
+
+  await emailService.sendPasswordResetEmail(
+    'author@example.org',
+    '<Ana>',
+    'https://journal.example.org/reset-password?token=abc&source=mail'
+  );
+
+  assert.equal(calls.messages.length, 1);
+  assert.equal(calls.messages[0].to, 'author@example.org');
+  assert.equal(calls.messages[0].subject, 'Restablece tu contraseña de Revista Mundo FESC');
+  assert.match(calls.messages[0].html, /Hola &lt;Ana&gt;/);
+  assert.match(calls.messages[0].html, /token=abc&amp;source=mail/);
+  assert.match(calls.messages[0].text, /token=abc&source=mail/);
+  restoreEnvironment();
+});

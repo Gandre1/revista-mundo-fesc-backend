@@ -1,7 +1,25 @@
 const db = require('../config/db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { crypto } = require('crypto');
+const crypto = require('node:crypto');
+const emailService = require('../services/emailService');
+const isValidPassword = require('../utils/passwordValidation');
+
+const passwordResetMessage = 'Si el correo está asociado a una cuenta, recibirás instrucciones para restablecer tu contraseña.';
+
+const getPasswordResetUrl = (token) => {
+  const frontendUrl = process.env.FRONTEND_URL;
+  if (!frontendUrl) {
+    throw new Error('Debe configurar FRONTEND_URL para enviar enlaces de restablecimiento.');
+  }
+
+  const resetUrl = new URL('/reset-password', frontendUrl);
+  if (!['http:', 'https:'].includes(resetUrl.protocol)) {
+    throw new Error('FRONTEND_URL debe usar HTTP o HTTPS.');
+  }
+  resetUrl.searchParams.set('token', token);
+  return resetUrl.toString();
+};
 
 // REGISTRO DE USUARIOS
 exports.register = async (req, res) => {
@@ -85,5 +103,98 @@ exports.login = async (req, res) => {
   } catch (error) {
     console.error('Error en login:', error);
     res.status(500).json({ message: 'Error interno del servidor.' });
+  }
+};
+
+exports.forgotPassword = async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (!email) {
+    return res.status(400).json({ message: 'El correo electrónico es obligatorio.' });
+  }
+
+  try {
+    const [users] = await db.query(
+      'SELECT id, nombre, email FROM users WHERE email = ? LIMIT 1',
+      [email]
+    );
+
+    if (users.length > 0) {
+      const user = users[0];
+      const token = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+      await db.query('DELETE FROM password_reset_tokens WHERE user_id = ?', [user.id]);
+      await db.query(
+        `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+         VALUES (?, ?, ?)`,
+        [user.id, tokenHash, expiresAt]
+      );
+
+      try {
+        await emailService.sendPasswordResetEmail(
+          user.email,
+          user.nombre,
+          getPasswordResetUrl(token)
+        );
+      } catch (error) {
+        await db.query(
+          'DELETE FROM password_reset_tokens WHERE user_id = ? AND token_hash = ?',
+          [user.id, tokenHash]
+        );
+        throw error;
+      }
+    }
+
+    return res.json({ message: passwordResetMessage });
+  } catch (error) {
+    console.error('Error al solicitar restablecimiento de contraseña:', error);
+    return res.status(500).json({ message: 'No fue posible procesar la solicitud de restablecimiento.' });
+  }
+};
+
+exports.resetPassword = async (req, res) => {
+  const { token, password } = req.body || {};
+  if (typeof token !== 'string' || !/^[a-f0-9]{64}$/i.test(token) ||
+      typeof password !== 'string' || !password) {
+    return res.status(400).json({ message: 'El token y la nueva contraseña son obligatorios.' });
+  }
+  if (!isValidPassword(password)) {
+    return res.status(400).json({
+      message: 'La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula, un número y un carácter especial.',
+    });
+  }
+
+  try {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const [resetTokens] = await db.query(
+      `SELECT user_id
+       FROM password_reset_tokens
+       WHERE token_hash = ? AND expires_at > NOW()
+       LIMIT 1`,
+      [tokenHash]
+    );
+    if (resetTokens.length === 0) {
+      return res.status(400).json({ message: 'El token de restablecimiento no es válido o ha expirado.' });
+    }
+
+    const userId = resetTokens[0].user_id;
+    const [consumedToken] = await db.query(
+      `DELETE FROM password_reset_tokens
+       WHERE token_hash = ? AND expires_at > NOW()`,
+      [tokenHash]
+    );
+    if (consumedToken.affectedRows !== 1) {
+      return res.status(400).json({ message: 'El token de restablecimiento no es válido o ha expirado.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await db.query('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, userId]);
+    await db.query('DELETE FROM password_reset_tokens WHERE user_id = ?', [userId]);
+
+    return res.json({ message: 'Contraseña restablecida correctamente.' });
+  } catch (error) {
+    console.error('Error al restablecer contraseña:', error);
+    return res.status(500).json({ message: 'No fue posible restablecer la contraseña.' });
   }
 };

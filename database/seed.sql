@@ -1,5 +1,5 @@
 -- Registros locales para revisar los flujos editoriales.
--- Importar despues de schema.sql. Todas las cuentas tienen password NULL y no permiten login.
+-- Importar despues de schema.sql. Estas credenciales son solo para desarrollo local.
 
 INSERT IGNORE INTO `email_templates`
   (`template_key`, `name`, `subject`, `body_html`, `variables_disponibles`)
@@ -35,15 +35,15 @@ VALUES
 
 INSERT INTO `users` (`id`, `nombre`, `apellidos`, `email`, `password`, `role`, `afiliacion`, `pais`)
 VALUES
-  ('7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad', 'María', 'García Rodríguez', 'maria.garcia@prueba.com', NULL, 'author', 'Universidad Nacional de Colombia', 'Colombia'),
-  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Laura', 'Jiménez Pérez', 'laura.jimenez@prueba.com', NULL, 'editor', 'Universidad FESC', 'Colombia'),
-  ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'Carlos', 'Martínez López', 'carlos.martinez@prueba.com', NULL, 'reviewer', 'Universidad de los Andes', 'Colombia'),
-  ('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'Andrés', 'Ramírez Torres', 'andres.ramirez@prueba.com', NULL, 'admin', 'Universidad FESC', 'Colombia')
+  ('7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad', 'María', 'García Rodríguez', 'gexonrodriguez1822@gmail.com', '$2b$10$nRS5fvcJ3Wc0wO2bA8J1IOfLHenCBiW8IUq03zfcdeg1eBMYl/Uze', 'author', 'Universidad Nacional de Colombia', 'Colombia'),
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Laura', 'Jiménez Pérez', 'editor@fesc.edu.co', '$2b$10$wvUg8bw5QF5v2KbMhDQhuexZEG6EGQczWMa0.NOHwnZBC/L0jjChe', 'editor', 'Universidad FESC', 'Colombia'),
+  ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'Carlos', 'Martínez López', 'reviewer@fesc.edu.co', '$2b$10$JjP66s6Rr0f3L1bDj07yv.nE4PaLOEg/EcdEB7V702Mk9TfJ/bYry', 'reviewer', 'Universidad de los Andes', 'Colombia'),
+  ('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'Andrés', 'Ramírez Torres', 'admin@fesc.edu.co', '$2b$10$plLi.O.MkBItkrXfOTaQnemZUGLOfQ3Wo8QM7pAtpP2ge0gYg2DPy', 'admin', 'Universidad FESC', 'Colombia')
 ON DUPLICATE KEY UPDATE
   `nombre` = VALUES(`nombre`),
   `apellidos` = VALUES(`apellidos`),
   `email` = VALUES(`email`),
-  `password` = NULL,
+  `password` = VALUES(`password`),
   `role` = VALUES(`role`),
   `afiliacion` = VALUES(`afiliacion`),
   `pais` = VALUES(`pais`);

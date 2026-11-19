@@ -115,3 +115,23 @@ exports.sendTemplateEmail = async (templateKey, recipient, variables = {}) => {
   const { from, transport } = createTransport();
   return transport.sendMail({ from, to: recipient, subject, html });
 };
+
+exports.sendPasswordResetEmail = async (recipient, name, resetUrl) => {
+  if (typeof recipient !== 'string' || !recipient.trim()) {
+    throw new Error('No se puede enviar el restablecimiento sin un destinatario válido.');
+  }
+  if (typeof resetUrl !== 'string' || !resetUrl.trim()) {
+    throw new Error('No se puede enviar el restablecimiento sin un enlace válido.');
+  }
+
+  const safeName = escapeHtml(name || 'usuario');
+  const safeUrl = escapeHtml(resetUrl);
+  const { from, transport } = createTransport();
+  return transport.sendMail({
+    from,
+    to: recipient,
+    subject: 'Restablece tu contraseña de Revista Mundo FESC',
+    text: `Hola ${name || 'usuario'}, usa este enlace para restablecer tu contraseña: ${resetUrl}. El enlace vence en una hora.`,
+    html: `<p>Hola ${safeName},</p><p>Recibimos una solicitud para restablecer tu contraseña.</p><p><a href="${safeUrl}">Restablecer contraseña</a></p><p>El enlace vence en una hora. Si no solicitaste este cambio, puedes ignorar este mensaje.</p>`,
+  });
+};
