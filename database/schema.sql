@@ -7,6 +7,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS `notifications`;
 DROP TABLE IF EXISTS `audit_logs`;
 DROP TABLE IF EXISTS `email_templates`;
+DROP TABLE IF EXISTS `reviewer_review_history`;
 DROP TABLE IF EXISTS `submission_reviews`;
 DROP TABLE IF EXISTS `submission_audit_logs`;
 DROP TABLE IF EXISTS `submission_files`;
@@ -159,12 +160,34 @@ CREATE TABLE `submission_reviews` (
   `reviewer_id` varchar(36) NOT NULL,
   `fecha_limite` date NOT NULL,
   `estado` varchar(30) NOT NULL DEFAULT 'asignado',
+  `recomendacion` varchar(40) DEFAULT NULL,
+  `comentarios_autor` text DEFAULT NULL,
+  `comentarios_editor` JSON DEFAULT NULL,
+  `fecha_dictamen` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `submission_reviewer_unique` (`submission_id`, `reviewer_id`),
   KEY `reviewer_id` (`reviewer_id`),
   CONSTRAINT `submission_reviews_submission_fk` FOREIGN KEY (`submission_id`) REFERENCES `submissions` (`id`) ON DELETE CASCADE,
   CONSTRAINT `submission_reviews_reviewer_fk` FOREIGN KEY (`reviewer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `reviewer_review_history` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `submission_id` varchar(36) NOT NULL,
+  `reviewer_id` varchar(36) NOT NULL,
+  `fecha_dictamen` timestamp NOT NULL DEFAULT current_timestamp(),
+  `recomendacion` varchar(40) NOT NULL,
+  `comentarios_autor` text NOT NULL,
+  `comentarios_editor` JSON NOT NULL,
+  `archivo_nombre` varchar(255) DEFAULT NULL,
+  `archivo_ruta` varchar(512) DEFAULT NULL,
+  `archivo_tamano` bigint(20) unsigned DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `reviewer_review_history_reviewer_date_idx` (`reviewer_id`, `fecha_dictamen`),
+  KEY `reviewer_review_history_submission_idx` (`submission_id`),
+  CONSTRAINT `reviewer_review_history_submission_fk` FOREIGN KEY (`submission_id`) REFERENCES `submissions` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `reviewer_review_history_reviewer_fk` FOREIGN KEY (`reviewer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `submission_audit_logs` (

@@ -1,5 +1,7 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const Module = require('node:module');
+const path = require('node:path');
 const test = require('node:test');
 
 const controllerPath = require.resolve('../src/controllers/submissionController');
@@ -27,6 +29,12 @@ const state = {
   issueExists: true,
   issueAssignment: null,
   reviewAssignment: null,
+  reviewerAssignments: [],
+  reviewerDecisionAssignment: [{ id: 1, archivo_ruta: null }],
+  savedReviewerDecision: null,
+  reviewerHistory: [],
+  editorialReviewDecisions: [],
+  reviewerAttachment: null,
   auditLogs: [],
   submission: {
     id: 'submission-1',
@@ -56,6 +64,58 @@ const db = {
 
     if (normalizedSql.startsWith('select count(*) as total, count(case when')) {
       return [[{ ...state.stats }]];
+    }
+
+    if (normalizedSql.startsWith('select sr.id, sr.submission_id, sr.fecha_limite')) {
+      return [state.reviewerAssignments];
+    }
+
+    if (normalizedSql.startsWith('select s.id, s.autor_id, s.titulo')) {
+      return [[state.submission]];
+    }
+
+    if (normalizedSql === 'select reviewer_id from submission_reviews where submission_id = ?') {
+      return [state.reviewerAssignments.map((review) => ({ reviewer_id: review.reviewer_id }))];
+    }
+
+    if (normalizedSql.startsWith('select id, nombre_original, tamano, tipo, ruta_almacenamiento, fecha_subida from submission_files')) {
+      return [[]];
+    }
+
+    if (normalizedSql.startsWith('select id, nombre, apellidos, email, afiliacion, pais, orcid')) {
+      return [[]];
+    }
+
+    if (normalizedSql.startsWith('select sr.id, sr.reviewer_id, concat_ws')) {
+      return [state.reviewerAssignments];
+    }
+
+    if (normalizedSql.startsWith('select sr.id, sr.id as historial_id, sr.reviewer_id, concat_ws')) {
+      return [state.editorialReviewDecisions];
+    }
+
+    if (normalizedSql.startsWith('select h.id, h.submission_id, h.fecha_dictamen')) {
+      return [state.reviewerHistory];
+    }
+
+    if (normalizedSql.startsWith('select sr.id, sr.submission_id, sr.reviewer_id, sr.fecha_limite')) {
+      return [state.savedReviewerDecision ? [state.savedReviewerDecision] : []];
+    }
+
+    if (normalizedSql === 'select id from submission_reviews where submission_id = ? and reviewer_id = ?') {
+      return [state.reviewerDecisionAssignment];
+    }
+
+    if (normalizedSql.startsWith('select archivo_nombre, archivo_ruta from reviewer_review_history where id = ?')) {
+      return [state.reviewerAttachment ? [state.reviewerAttachment] : []];
+    }
+
+    if (normalizedSql.startsWith('select archivo_nombre, archivo_ruta, archivo_tamano from reviewer_review_history')) {
+      return [state.reviewerAttachment ? [state.reviewerAttachment] : []];
+    }
+
+    if (normalizedSql === 'select editor_id from submissions where id = ?') {
+      return [[{ editor_id: state.submission.editor_id }]];
     }
 
     if (normalizedSql.includes("from users where id = ? and role = 'editor'")) {
@@ -120,6 +180,23 @@ const db = {
       return [{ affectedRows: 1 }];
     }
 
+    if (normalizedSql.startsWith('insert into reviewer_review_history')) {
+      const historyRow = {
+        id: state.reviewerHistory.length + 1,
+        submission_id: values[0],
+        reviewer_id: values[1],
+        recomendacion: values[2],
+        comentarios_autor: values[3],
+        comentarios_editor: values[4],
+        archivo_nombre: values[5],
+        archivo_ruta: values[6],
+        archivo_tamano: values[7],
+      };
+      state.reviewerHistory.push(historyRow);
+      state.reviewerAttachment = historyRow;
+      return [{ insertId: historyRow.id, affectedRows: 1 }];
+    }
+
     if (normalizedSql.startsWith('select s.autor_id, s.editor_id, sr.reviewer_id')) {
       return [[{ autor_id: state.submission.autor_id || null, editor_id: state.submission.editor_id || null, reviewer_id: null }]];
     }
@@ -173,7 +250,27 @@ const db = {
       return [{ affectedRows: 1 }];
     }
 
+    if (normalizedSql.startsWith('update submission_reviews set estado = \'completado\'')) {
+      state.savedReviewerDecision = {
+        recomendacion: values[0],
+        comentarios_autor: values[1],
+        comentarios_editor: values[2],
+        submission_id: values[3],
+        reviewer_id: values[4],
+      };
+      return [{ affectedRows: 1 }];
+    }
+
     throw new Error(`Consulta no contemplada en la prueba: ${normalizedSql}`);
+  },
+  async getConnection() {
+    return {
+      query: (...args) => db.query(...args),
+      async beginTransaction() {},
+      async commit() {},
+      async rollback() {},
+      release() {},
+    };
   },
 };
 
@@ -219,6 +316,12 @@ function resetState() {
   state.issueExists = true;
   state.issueAssignment = null;
   state.reviewAssignment = null;
+  state.reviewerAssignments = [];
+  state.reviewerDecisionAssignment = [{ id: 1, archivo_ruta: null }];
+  state.savedReviewerDecision = null;
+  state.reviewerHistory = [];
+  state.editorialReviewDecisions = [];
+  state.reviewerAttachment = null;
   state.auditLogs = [];
   state.submission = {
     id: 'submission-1',
@@ -240,12 +343,29 @@ function resetState() {
 function response() {
   return {
     statusCode: 200,
+    headers: {},
     status(code) {
       this.statusCode = code;
       return this;
     },
     json(body) {
       this.body = body;
+      return this;
+    },
+    type(contentType) {
+      this.contentType = contentType;
+      return this;
+    },
+    setHeader(name, value) {
+      this.headers[name] = value;
+      return this;
+    },
+    sendFile(filePath) {
+      this.sentFile = filePath;
+      return this;
+    },
+    download(filePath, fileName) {
+      this.downloadedFile = { filePath, fileName };
       return this;
     },
   };
@@ -528,6 +648,292 @@ test('returns the available reviewers', async () => {
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body.reviewers, state.reviewers);
   assert.match(state.calls[0].sql, /where role = 'reviewer'/);
+});
+
+test('returns only the authenticated reviewer assignments with deadline and review state', async () => {
+  resetState();
+  state.reviewerAssignments = [{
+    id: 8,
+    submission_id: 'submission-1',
+    fecha_limite: '2026-11-20',
+    estado_revision: 'asignado',
+    recomendacion: null,
+    titulo: 'Artículo de prueba',
+  }];
+  const res = response();
+
+  await controller.getMyReviews({ user: { id: 'reviewer-1', role: 'reviewer' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.reviews, state.reviewerAssignments);
+  assert.deepEqual(state.calls[0].values, ['reviewer-1']);
+  assert.match(state.calls[0].sql, /where sr\.reviewer_id = \?/);
+
+  const forbidden = response();
+  await controller.getMyReviews({ user: { id: 'editor-1', role: 'editor' } }, forbidden);
+  assert.equal(forbidden.statusCode, 403);
+});
+
+test('returns only the authenticated reviewer own saved decision', async () => {
+  resetState();
+  state.savedReviewerDecision = {
+    id: 8,
+    submission_id: 'submission-1',
+    estado: 'completado',
+    recomendacion: 'aceptar',
+    comentarios_autor: 'Comentarios compartibles.',
+    comentarios_editor: '{"fortalezas":"Nota confidencial"}',
+  };
+  const res = response();
+
+  await controller.getReviewerReview({
+    ...request(),
+    user: { id: 'reviewer-1', role: 'reviewer' },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.review, state.savedReviewerDecision);
+  assert.deepEqual(state.calls[0].values, ['submission-1', 'reviewer-1']);
+
+  const forbidden = response();
+  await controller.getReviewerReview({
+    ...request(),
+    user: { id: 'editor-1', role: 'editor' },
+  }, forbidden);
+  assert.equal(forbidden.statusCode, 403);
+});
+
+test('returns only completed decisions in the authenticated reviewer history', async () => {
+  resetState();
+  state.reviewerHistory = [{
+    id: 8,
+    submission_id: 'submission-1',
+    titulo: 'Artículo evaluado',
+    fecha_dictamen: '2026-11-20 11:30:00',
+    recomendacion: 'aceptar',
+    comentarios_autor: 'Comentarios para el autor.',
+    comentarios_editor: '{"fortalezas":"Nota editorial"}',
+    archivo_nombre: 'anotaciones.docx',
+  }];
+  const res = response();
+
+  await controller.getReviewerReviewHistory({ user: { id: 'reviewer-1', role: 'reviewer' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.reviews, state.reviewerHistory);
+  assert.deepEqual(state.calls[0].values, ['reviewer-1']);
+  assert.match(state.calls[0].sql, /from reviewer_review_history h/);
+  assert.match(state.calls[0].sql, /where h\.reviewer_id = \?/);
+
+  const forbidden = response();
+  await controller.getReviewerReviewHistory({ user: { id: 'editor-1', role: 'editor' } }, forbidden);
+  assert.equal(forbidden.statusCode, 403);
+  assert.equal(state.calls.length, 1);
+});
+
+test('exposes history IDs for editorial annotation links', async () => {
+  resetState();
+  state.editorialReviewDecisions = [{
+    id: 23,
+    historial_id: 23,
+    reviewer_id: 'reviewer-1',
+    reviewer_nombre: 'Revisor FESC',
+    recomendacion: 'aceptar',
+    comentarios_autor: 'Comentarios para el autor.',
+    comentarios_editor: '{"fortalezas":"Nota confidencial"}',
+    fecha_dictamen: '2026-11-20 11:30:00',
+    archivo_nombre: 'anotaciones.pdf',
+    archivo_tamano: 1024,
+  }];
+  const res = response();
+
+  await controller.getSubmissionById({
+    params: { id: 'submission-1' },
+    user: { id: 'editor-1', role: 'editor' },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.submission.dictamenes[0].historial_id, 23);
+  const decisionsQuery = state.calls.find(({ sql }) => sql.includes('from reviewer_review_history sr'));
+  assert.match(decisionsQuery.sql, /sr\.id as historial_id/);
+});
+
+test('saves an assigned reviewer decision and notifies the editor', async () => {
+  resetState();
+  state.submission.editor_id = 'editor-1';
+  const res = response();
+  const editorComments = {
+    fortalezas: 'Buena pregunta de investigación.',
+    debilidades: '',
+    metodologia: 'Aclare el tamaño de la muestra.',
+    comentario_confidencial: '',
+  };
+
+  await controller.saveReviewerReview({
+    ...request({
+      recomendacion: 'revisiones_menores',
+      comentarios_autor: '  Aclare dos aspectos del texto. ',
+      comentarios_editor: editorComments,
+    }),
+    user: { id: 'reviewer-1', role: 'reviewer' },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.message, 'Dictamen registrado correctamente.');
+  assert.deepEqual(state.savedReviewerDecision, {
+    recomendacion: 'revisiones_menores',
+    comentarios_autor: 'Aclare dos aspectos del texto.',
+    comentarios_editor: JSON.stringify(editorComments),
+    submission_id: 'submission-1',
+    reviewer_id: 'reviewer-1',
+  });
+  assert.equal(state.auditLogs.at(-1).action, 'review_submitted');
+  assert.ok(state.calls.some(({ sql, values }) =>
+    sql.startsWith('insert into notifications') && values[0] === 'editor-1'
+  ));
+});
+
+test('persists an attached Word annotation file with a multipart reviewer decision', async () => {
+  resetState();
+  const res = response();
+  const editorComments = { fortalezas: 'Nota interna', debilidades: '', metodologia: '', comentario_confidencial: '' };
+  const filePath = path.resolve(process.cwd(), 'private_uploads', 'review-annotations', 'annotated-review.docx');
+  const file = {
+    originalname: 'comentarios.docx',
+    path: filePath,
+    size: 3456,
+  };
+
+  await controller.saveReviewerReview({
+    ...request({
+      recomendacion: 'revisiones_menores',
+      comentarios_autor: 'Revise las observaciones adjuntas.',
+      comentarios_editor: JSON.stringify(editorComments),
+    }),
+    file,
+    user: { id: 'reviewer-1', role: 'reviewer' },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.historyId, state.reviewerHistory[0].id);
+  assert.deepEqual(state.savedReviewerDecision, {
+    recomendacion: 'revisiones_menores',
+    comentarios_autor: 'Revise las observaciones adjuntas.',
+    comentarios_editor: JSON.stringify(editorComments),
+    submission_id: 'submission-1',
+    reviewer_id: 'reviewer-1',
+  });
+  assert.deepEqual(state.reviewerHistory[0], {
+    id: 1,
+    submission_id: 'submission-1',
+    reviewer_id: 'reviewer-1',
+    recomendacion: 'revisiones_menores',
+    comentarios_autor: 'Revise las observaciones adjuntas.',
+    comentarios_editor: JSON.stringify(editorComments),
+    archivo_nombre: 'comentarios.docx',
+    archivo_ruta: filePath,
+    archivo_tamano: 3456,
+  });
+
+  const resubmissionResponse = response();
+  await controller.saveReviewerReview({
+    ...request({
+      recomendacion: 'aceptar',
+      comentarios_autor: 'Se resolvieron las observaciones.',
+      comentarios_editor: JSON.stringify({
+        fortalezas: 'La versión corregida está lista.',
+        debilidades: '',
+        metodologia: '',
+        comentario_confidencial: '',
+      }),
+    }),
+    user: { id: 'reviewer-1', role: 'reviewer' },
+  }, resubmissionResponse);
+
+  assert.equal(state.reviewerHistory.length, 2);
+  assert.equal(state.reviewerHistory[1].id, resubmissionResponse.body.historyId);
+  assert.equal(state.reviewerHistory[1].archivo_ruta, filePath);
+});
+
+test('restricts annotation retrieval to its reviewer and supports PDF preview and Word download', async () => {
+  resetState();
+  const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  const privateDirectory = path.resolve(__dirname, '..', 'private_uploads', 'review-annotations');
+  fs.mkdirSync(privateDirectory, { recursive: true });
+  const pdfName = `review-annotation-${unique}.pdf`;
+  const wordName = `review-annotation-${unique}.docx`;
+  const pdfPath = path.resolve(privateDirectory, pdfName);
+  const wordPath = path.resolve(privateDirectory, wordName);
+  fs.writeFileSync(pdfPath, '%PDF-test');
+  fs.writeFileSync(wordPath, 'Word test');
+
+  try {
+    const forbidden = response();
+    await controller.getReviewerReviewAttachment({
+      params: { id: 'submission-1', reviewerId: 'reviewer-2', historyId: '1' },
+      user: { id: 'reviewer-1', role: 'reviewer' },
+      query: {},
+    }, forbidden);
+    assert.equal(forbidden.statusCode, 404);
+    assert.equal(state.calls.length, 0);
+
+    state.reviewerAttachment = {
+      archivo_nombre: pdfName,
+      archivo_ruta: path.relative(process.cwd(), pdfPath),
+    };
+    const preview = response();
+    await controller.getReviewerReviewAttachment({
+      params: { id: 'submission-1', reviewerId: 'reviewer-1', historyId: '1' },
+      user: { id: 'reviewer-1', role: 'reviewer' },
+      query: {},
+    }, preview);
+    assert.equal(preview.contentType, 'application/pdf');
+    assert.equal(preview.sentFile, pdfPath);
+
+    state.reviewerAttachment = {
+      archivo_nombre: wordName,
+      archivo_ruta: path.relative(process.cwd(), wordPath),
+    };
+    const download = response();
+    await controller.getReviewerReviewAttachment({
+      params: { id: 'submission-1', reviewerId: 'reviewer-1', historyId: '2' },
+      user: { id: 'editor-1', role: 'editor' },
+      query: {},
+    }, download);
+    assert.deepEqual(download.downloadedFile, { filePath: wordPath, fileName: wordName });
+  } finally {
+    fs.unlinkSync(pdfPath);
+    fs.unlinkSync(wordPath);
+  }
+});
+
+test('rejects invalid reviewer decisions and assignments not owned by the reviewer', async () => {
+  resetState();
+  const invalidRecommendation = response();
+  await controller.saveReviewerReview({
+    ...request({
+      recomendacion: 'maybe',
+      comentarios_autor: 'Observaciones',
+      comentarios_editor: { fortalezas: 'Nota interna' },
+    }),
+    user: { id: 'reviewer-1', role: 'reviewer' },
+  }, invalidRecommendation);
+  assert.equal(invalidRecommendation.statusCode, 400);
+  assert.equal(state.calls.length, 0);
+
+  resetState();
+  state.reviewerDecisionAssignment = [];
+  const unassignedReviewer = response();
+  await controller.saveReviewerReview({
+    ...request({
+      recomendacion: 'aceptar',
+      comentarios_autor: 'Observaciones',
+      comentarios_editor: { fortalezas: 'Nota interna' },
+    }),
+    user: { id: 'reviewer-2', role: 'reviewer' },
+  }, unassignedReviewer);
+  assert.equal(unassignedReviewer.statusCode, 404);
+  assert.equal(state.savedReviewerDecision, null);
 });
 
 test('assigns a reviewer with a valid deadline', async () => {

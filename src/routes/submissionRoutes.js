@@ -5,7 +5,15 @@ const authenticateToken = require('../middlewares/authMiddleware');
 const auditMiddleware = require('../middlewares/auditMiddleware');
 const upload = require('../middlewares/uploadMiddleware');
 const multer = require('multer');
+const fs = require('fs');
 const path = require('path');
+
+const reviewAnnotationsDirectory = path.resolve(process.cwd(), 'private_uploads', 'review-annotations');
+fs.mkdirSync(reviewAnnotationsDirectory, { recursive: true });
+const reviewAnnotationUpload = upload.createUploadMiddleware(
+  reviewAnnotationsDirectory,
+  'review-annotation'
+);
 
 const galleyUpload = multer({
   storage: multer.diskStorage({
@@ -35,12 +43,31 @@ const requireEditorialRole = (req, res, next) => {
   next();
 };
 
+const requireReviewerRole = (req, res, next) => {
+  if (req.user.role !== 'reviewer') {
+    return res.status(403).json({ message: 'No tienes permisos para gestionar dictámenes.' });
+  }
+  next();
+};
+
+const requireReviewAttachmentRole = (req, res, next) => {
+  if (!['reviewer', 'admin', 'editor'].includes(req.user.role)) {
+    return res.status(403).json({ message: 'No tienes permisos para acceder a este archivo de revisión.' });
+  }
+  next();
+};
+
 router.post('/', auditMiddleware({ targetModel: 'Submission' }), submissionController.createSubmission);
 router.get('/', requireEditorialRole, submissionController.getAllSubmissions);
 router.get('/stats', requireEditorialRole, submissionController.getSubmissionStats);
 router.get('/my-submissions', submissionController.getMySubmissions);
+router.get('/my-reviews', requireReviewerRole, submissionController.getMyReviews);
+router.get('/review-history', requireReviewerRole, submissionController.getReviewerReviewHistory);
 router.get('/editors', requireEditorialRole, submissionController.getEditors);
 router.get('/reviewers', requireEditorialRole, submissionController.getReviewers);
+router.get('/:id/review', requireReviewerRole, submissionController.getReviewerReview);
+router.get('/:id/reviewers/:reviewerId/history/:historyId/attachment', requireReviewAttachmentRole, submissionController.getReviewerReviewAttachment);
+router.put('/:id/review', requireReviewerRole, reviewAnnotationUpload.single('archivo_anotaciones'), auditMiddleware({ targetModel: 'Submission' }), submissionController.saveReviewerReview);
 router.get('/:id/audit-logs', requireEditorialRole, submissionController.getSubmissionAuditLogs);
 router.get('/:id', submissionController.getSubmissionById);
 router.put('/:id', auditMiddleware({ targetModel: 'Submission' }), submissionController.updateSubmission);

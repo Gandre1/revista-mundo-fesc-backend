@@ -133,6 +133,11 @@ http://localhost:4000
 | POST   | /api/submissions                | Crear borrador de artículo (requiere JWT)           |
 | GET    | /api/submissions                | Listar envíos con autor, metadatos, estado y editor asignado (admin/editor); acepta `page`, `limit` (máx. 100), `sortBy` y `order` (`asc`/`desc`) |
 | GET    | /api/submissions/my-submissions | Listar borradores del autor logueado (requiere JWT) |
+| GET    | /api/submissions/my-reviews | Listar las asignaciones del revisor autenticado, con fecha límite y estado (rol reviewer) |
+| GET    | /api/submissions/review-history | Consultar los dictámenes enviados por el revisor autenticado (rol reviewer) |
+| GET    | /api/submissions/:id/review | Consultar el dictamen propio de un envío asignado (rol reviewer) |
+| PUT    | /api/submissions/:id/review | Registrar o actualizar el dictamen y, opcionalmente, un archivo PDF/DOC/DOCX de anotaciones (rol reviewer; multipart, máximo 10 MB) |
+| GET    | /api/submissions/:id/reviewers/:reviewerId/history/:historyId/attachment | Descargar/ver el archivo de anotaciones (solo revisor propietario o equipo editorial) |
 | DELETE | /api/submissions/:id            | Eliminar un borrador propio (requiere JWT)          |
 | PATCH  | /api/submissions/:id/status     | Actualizar el estado editorial (admin/editor; JSON: `{"estado":"en_revision"}`) |
 | PATCH  | /api/submissions/:id/assign-editor | Asignar o desasignar editor (admin/editor; JSON: `{"editor_id":"<id>"}` o `null`) |
@@ -144,6 +149,12 @@ http://localhost:4000
 La respuesta de `GET /api/submissions` incluye `submissions` y `pagination` (`page`, `limit`, `total`, `totalPages`). Cuando se omiten `page` y `limit`, conserva la lista completa para los consumidores existentes.
 
 Las rutas editoriales responden con JSON y devuelven el envío actualizado. Un estado no válido o un editor inexistente produce `400`; un envío inexistente produce `404`.
+
+El dictamen requiere una recomendación (`aceptar`, `revisiones_menores`, `revisiones_mayores` o `rechazar`), comentarios no vacíos para el autor y al menos un campo estructurado para el editor (`fortalezas`, `debilidades`, `metodologia` o `comentario_confidencial`). Los comentarios confidenciales solo son visibles para el equipo editorial y el revisor que los escribió; no se exponen a autores ni a otros revisores.
+
+Cada envío de dictamen queda como un registro histórico independiente, incluso si luego se actualiza o se retira la asignación. Los archivos de anotaciones se guardan fuera del directorio estático `uploads/` y no se mezclan con los adjuntos visibles al autor. Se admiten `.pdf`, `.doc` y `.docx` con máximo de 10 MB; los PDF se pueden visualizar en el navegador y Word se descarga. El acceso está limitado al revisor propietario del dictamen y al equipo editorial.
+
+Para bases existentes, aplica `database/migrations/013_add_reviewer_decisions.sql` y `database/migrations/014_add_reviewer_annotation_files.sql` en orden, después de crear `submission_reviews`.
 
 ### Plantillas de correo
 

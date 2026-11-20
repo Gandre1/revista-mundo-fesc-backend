@@ -34,6 +34,37 @@ const statusEmailTemplate = {
   revisiones_requeridas: 'submission_changes_requested',
 };
 
+const reviewerRecommendations = new Set([
+  'aceptar',
+  'revisiones_menores',
+  'revisiones_mayores',
+  'rechazar',
+]);
+const reviewerCommentFields = [
+  'fortalezas',
+  'debilidades',
+  'metodologia',
+  'comentario_confidencial',
+];
+const reviewUploadsDirectory = path.resolve(process.cwd(), 'private_uploads', 'review-annotations');
+
+const removeUploadedReviewFile = (file) => {
+  if (!file?.path) return;
+  fs.unlink(file.path, (error) => {
+    if (error && error.code !== 'ENOENT') {
+      console.error(`No se pudo limpiar el archivo de revisión ${file.path}:`, error);
+    }
+  });
+};
+
+const resolveReviewFilePath = (storedPath) => {
+  if (typeof storedPath !== 'string' || !storedPath.trim()) return null;
+  const filePath = path.resolve(process.cwd(), storedPath);
+  const relativePath = path.relative(reviewUploadsDirectory, filePath);
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) return null;
+  return filePath;
+};
+
 const normalizeStatus = (status) => {
   const normalized = typeof status === 'string' ? status.trim().toLowerCase() : '';
   return statusMap[normalized] || normalized;
@@ -155,6 +186,310 @@ exports.getMySubmissions = async (req, res) => {
   } catch (error) {
     console.error('Error al obtener envíos del autor:', error);
     res.status(500).json({ message: 'Error interno al consultar los envíos.', errorDetail: error.message });
+  }
+};
+
+exports.getMyReviews = async (req, res) => {
+  if (req.user?.role !== 'reviewer') {
+    return res.status(403).json({ message: 'No tienes permisos para consultar estas asignaciones.' });
+  }
+
+  try {
+    const [reviews] = await db.query(
+      `SELECT sr.id, sr.submission_id, sr.fecha_limite, sr.estado AS estado_revision,
+              sr.recomendacion, sr.fecha_dictamen,
+              (SELECT h.archivo_nombre
+               FROM reviewer_review_history h
+               WHERE h.submission_id = sr.submission_id AND h.reviewer_id = sr.reviewer_id
+               ORDER BY h.id DESC LIMIT 1) AS archivo_nombre,
+              (SELECT h.archivo_tamano
+               FROM reviewer_review_history h
+               WHERE h.submission_id = sr.submission_id AND h.reviewer_id = sr.reviewer_id
+               ORDER BY h.id DESC LIMIT 1) AS archivo_tamano,
+              s.titulo, s.seccion, s.estado AS estado_envio, s.fecha_envio, s.created_at
+       FROM submission_reviews sr
+       JOIN submissions s ON s.id = sr.submission_id
+       WHERE sr.reviewer_id = ?
+       ORDER BY sr.fecha_limite ASC, s.created_at DESC`,
+      [req.user.id]
+    );
+    return res.json({ reviews });
+  } catch (error) {
+    console.error('Error al consultar las asignaciones del revisor:', error);
+    return res.status(500).json({ message: 'Error interno al consultar tus asignaciones.' });
+  }
+};
+
+exports.getReviewerReviewHistory = async (req, res) => {
+  if (req.user?.role !== 'reviewer') {
+    return res.status(403).json({ message: 'No tienes permisos para consultar este historial.' });
+  }
+
+  try {
+    const [reviews] = await db.query(
+      `SELECT h.id, h.submission_id, h.fecha_dictamen, h.recomendacion,
+              h.comentarios_autor, h.comentarios_editor,
+              h.archivo_nombre, h.archivo_tamano,
+              s.titulo, s.seccion, s.estado AS estado_envio
+       FROM reviewer_review_history h
+       JOIN submissions s ON s.id = h.submission_id
+       WHERE h.reviewer_id = ?
+       ORDER BY h.fecha_dictamen DESC, h.id DESC`,
+      [req.user.id]
+    );
+    return res.json({ reviews });
+  } catch (error) {
+    console.error('Error al consultar el historial del revisor:', error);
+    return res.status(500).json({ message: 'Error interno al consultar tu historial de dictámenes.' });
+  }
+};
+
+exports.getReviewerReview = async (req, res) => {
+  if (req.user?.role !== 'reviewer') {
+    return res.status(403).json({ message: 'No tienes permisos para consultar este dictamen.' });
+  }
+
+  try {
+    const [reviews] = await db.query(
+      `SELECT sr.id, sr.submission_id, sr.reviewer_id, sr.fecha_limite, sr.estado,
+              sr.recomendacion, sr.comentarios_autor, sr.comentarios_editor, sr.fecha_dictamen,
+              h.id AS historial_id, h.archivo_nombre, h.archivo_tamano
+       FROM submission_reviews sr
+       LEFT JOIN reviewer_review_history h
+         ON h.id = (
+           SELECT history.id FROM reviewer_review_history history
+           WHERE history.submission_id = sr.submission_id AND history.reviewer_id = sr.reviewer_id
+           ORDER BY history.id DESC LIMIT 1
+         )
+       WHERE sr.submission_id = ? AND sr.reviewer_id = ?`,
+      [req.params.id, req.user.id]
+    );
+    if (reviews.length === 0) {
+      return res.status(404).json({ message: 'No tienes asignado este envío para revisión.' });
+    }
+    return res.json({ review: reviews[0] });
+  } catch (error) {
+    console.error(`Error al consultar el dictamen del envío ${req.params.id}:`, error);
+    return res.status(500).json({ message: 'Error interno al consultar el dictamen.' });
+  }
+};
+
+exports.saveReviewerReview = async (req, res) => {
+  if (req.user?.role !== 'reviewer') {
+    removeUploadedReviewFile(req.file);
+    return res.status(403).json({ message: 'No tienes permisos para registrar dictámenes.' });
+  }
+
+  const invalidRequest = (message) => {
+    removeUploadedReviewFile(req.file);
+    return res.status(400).json({ message });
+  };
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return invalidRequest('El cuerpo de la solicitud debe ser un objeto JSON.');
+  }
+
+  const { recomendacion, comentarios_autor } = body;
+  let comentarios_editor = body.comentarios_editor;
+  if (typeof comentarios_editor === 'string') {
+    try {
+      comentarios_editor = JSON.parse(comentarios_editor);
+    } catch {
+      return invalidRequest('Los comentarios para el editor deben enviarse en formato estructurado.');
+    }
+  }
+  if (!reviewerRecommendations.has(recomendacion)) {
+    return invalidRequest('Selecciona una recomendación final válida.');
+  }
+  if (typeof comentarios_autor !== 'string' || !comentarios_autor.trim() || comentarios_autor.length > 10000) {
+    return invalidRequest('Los comentarios para el autor son obligatorios y no deben superar 10000 caracteres.');
+  }
+  if (req.file && req.file.originalname.length > 255) {
+    return invalidRequest('El nombre del archivo de anotaciones no debe superar 255 caracteres.');
+  }
+  if (!comentarios_editor || typeof comentarios_editor !== 'object' || Array.isArray(comentarios_editor)) {
+    return invalidRequest('Los comentarios para el editor deben enviarse en formato estructurado.');
+  }
+
+  const editorComments = {};
+  for (const field of reviewerCommentFields) {
+    const value = comentarios_editor[field] ?? '';
+    if (typeof value !== 'string' || value.length > 5000) {
+      return invalidRequest(`El campo ${field} debe ser texto de hasta 5000 caracteres.`);
+    }
+    editorComments[field] = value.trim();
+  }
+  if (!reviewerCommentFields.some((field) => editorComments[field])) {
+    return invalidRequest('Completa al menos un comentario estructurado para el editor.');
+  }
+
+  let connection;
+  let transactionStarted = false;
+  let attachmentPersisted = false;
+  let historyId;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    transactionStarted = true;
+
+    const [assignments] = await connection.query(
+      'SELECT id FROM submission_reviews WHERE submission_id = ? AND reviewer_id = ?',
+      [req.params.id, req.user.id]
+    );
+    if (assignments.length === 0) {
+      await connection.rollback();
+      transactionStarted = false;
+      removeUploadedReviewFile(req.file);
+      return res.status(404).json({ message: 'No tienes asignado este envío para revisión.' });
+    }
+
+    const [previousAttachments] = await connection.query(
+      `SELECT archivo_nombre, archivo_ruta, archivo_tamano
+       FROM reviewer_review_history
+       WHERE submission_id = ? AND reviewer_id = ?
+       ORDER BY id DESC LIMIT 1`,
+      [req.params.id, req.user.id]
+    );
+    const previousAttachment = previousAttachments[0] || {};
+    const attachment = req.file
+      ? {
+        archivo_nombre: req.file.originalname,
+        archivo_ruta: req.file.path,
+        archivo_tamano: req.file.size,
+      }
+      : previousAttachment;
+
+    await connection.query(
+      `UPDATE submission_reviews
+       SET estado = 'completado', recomendacion = ?, comentarios_autor = ?,
+           comentarios_editor = ?, fecha_dictamen = CURRENT_TIMESTAMP
+       WHERE submission_id = ? AND reviewer_id = ?`,
+      [
+        recomendacion,
+        comentarios_autor.trim(),
+        JSON.stringify(editorComments),
+        req.params.id,
+        req.user.id,
+      ]
+    );
+    const [historyResult] = await connection.query(
+      `INSERT INTO reviewer_review_history (
+         submission_id, reviewer_id, recomendacion, comentarios_autor,
+         comentarios_editor, archivo_nombre, archivo_ruta, archivo_tamano
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        req.params.id,
+        req.user.id,
+        recomendacion,
+        comentarios_autor.trim(),
+        JSON.stringify(editorComments),
+        attachment.archivo_nombre || null,
+        attachment.archivo_ruta || null,
+        attachment.archivo_tamano || null,
+      ]
+    );
+    historyId = historyResult.insertId;
+    await connection.query(
+      `INSERT INTO submission_audit_logs (submission_id, user_id, action, description)
+       VALUES (?, ?, ?, ?)`,
+      [
+        req.params.id,
+        req.user.id,
+        'review_submitted',
+        `Dictamen registrado: ${recomendacion}${attachment.archivo_nombre ? ' con archivo de anotaciones adjunto.' : '.'}`,
+      ]
+    );
+    await connection.commit();
+    transactionStarted = false;
+    attachmentPersisted = Boolean(req.file);
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error(`No se pudo revertir el dictamen del envío ${req.params.id}:`, rollbackError);
+      }
+    }
+    if (!attachmentPersisted) removeUploadedReviewFile(req.file);
+    console.error(`Error al guardar el dictamen del envío ${req.params.id}:`, error);
+    return res.status(500).json({ message: 'Error interno al registrar el dictamen.' });
+  } finally {
+    if (connection) connection.release();
+  }
+
+  try {
+    const [submissions] = await db.query(
+      'SELECT editor_id FROM submissions WHERE id = ?',
+      [req.params.id]
+    );
+    if (submissions[0]?.editor_id) {
+      await createNotification(
+        submissions[0].editor_id,
+        req.params.id,
+        'Nuevo dictamen de revisión',
+        'Un revisor ha registrado su dictamen para un envío asignado.'
+      );
+    }
+  } catch (error) {
+    console.error(`No se pudo notificar al editor del dictamen del envío ${req.params.id}:`, error);
+  }
+
+  return res.json({
+    message: 'Dictamen registrado correctamente.',
+    submissionId: req.params.id,
+    historyId,
+  });
+};
+
+exports.getReviewerReviewAttachment = async (req, res) => {
+  const { id, reviewerId, historyId } = req.params;
+  const isEditorialUser = ['admin', 'editor'].includes(req.user?.role);
+  if (!isEditorialUser && req.user?.role !== 'reviewer') {
+    return res.status(403).json({ message: 'No tienes permisos para acceder a este archivo de revisión.' });
+  }
+  if (!isEditorialUser && reviewerId !== req.user.id) {
+    return res.status(404).json({ message: 'Archivo de anotaciones no encontrado.' });
+  }
+
+  try {
+    const [attachments] = await db.query(
+      `SELECT archivo_nombre, archivo_ruta
+       FROM reviewer_review_history
+       WHERE id = ? AND submission_id = ? AND reviewer_id = ?`,
+      [historyId, id, reviewerId]
+    );
+    if (!attachments.length || !attachments[0].archivo_nombre || !attachments[0].archivo_ruta) {
+      return res.status(404).json({ message: 'Archivo de anotaciones no encontrado.' });
+    }
+
+    const attachment = attachments[0];
+    const filePath = resolveReviewFilePath(attachment.archivo_ruta);
+    if (!filePath) {
+      console.error(`Ruta de archivo inválida en el dictamen del envío ${id}.`);
+      return res.status(500).json({ message: 'La ubicación del archivo de anotaciones no es válida.' });
+    }
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      return res.status(404).json({ message: 'El archivo de anotaciones no está disponible en el servidor.' });
+    }
+
+    const safeName = path.basename(attachment.archivo_nombre).replace(/[\r\n"]/g, '_');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (req.query.download === '1' || path.extname(safeName).toLowerCase() !== '.pdf') {
+      return res.download(filePath, safeName);
+    }
+
+    const asciiName = safeName.replace(/[^\x20-\x7E]/g, '_').replace(/[\\"]/g, '_');
+    res.type('application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(safeName).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)}`
+    );
+    return res.sendFile(filePath);
+  } catch (error) {
+    console.error(`Error al consultar el archivo de anotaciones del envío ${id}:`, error);
+    return res.status(500).json({ message: 'Error interno al consultar el archivo de anotaciones.' });
   }
 };
 
@@ -418,7 +753,7 @@ exports.assignSubmissionReviewer = async (req, res) => {
     await db.query(
       `INSERT INTO submission_reviews (submission_id, reviewer_id, fecha_limite)
        VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE fecha_limite = ?, estado = 'asignado'`,
+       ON DUPLICATE KEY UPDATE fecha_limite = ?`,
       [id, reviewer_id, fecha_limite, fecha_limite]
     );
     await db.query(
@@ -1033,6 +1368,19 @@ exports.getSubmissionById = async (req, res) => {
            ORDER BY sr.fecha_limite ASC`,
           [id]
         );
+    const [reviewDecisions] = isEditorialUser
+      ? await db.query(
+        `SELECT sr.id, sr.id AS historial_id, sr.reviewer_id,
+                CONCAT_WS(' ', reviewer.nombre, reviewer.apellidos) AS reviewer_nombre,
+                  sr.recomendacion, sr.comentarios_autor, sr.comentarios_editor,
+                  sr.fecha_dictamen, sr.archivo_nombre, sr.archivo_tamano
+         FROM reviewer_review_history sr
+         JOIN users reviewer ON reviewer.id = sr.reviewer_id
+         WHERE sr.submission_id = ?
+         ORDER BY sr.fecha_dictamen ASC`,
+        [id]
+      )
+      : [[]];
 
     // Respuesta consolidada
     res.json({
@@ -1041,6 +1389,7 @@ exports.getSubmissionById = async (req, res) => {
         archivos: files,
         autores: authors,
         revisores: reviews,
+        ...(isEditorialUser ? { dictamenes: reviewDecisions } : {}),
       }
     });
   } catch (error) {
@@ -1135,6 +1484,10 @@ exports.deleteDraft = async (req, res) => {
       'SELECT ruta_almacenamiento FROM submission_files WHERE submission_id = ?',
       [id]
     );
+    const [reviewFiles] = await connection.query(
+      'SELECT archivo_ruta FROM reviewer_review_history WHERE submission_id = ?',
+      [id]
+    );
 
     const [result] = await connection.query(
       isAdmin
@@ -1169,6 +1522,22 @@ exports.deleteDraft = async (req, res) => {
         }
       } catch (error) {
         console.error(`No fue posible limpiar un archivo del borrador ${id}:`, error);
+      }
+    }
+    for (const file of reviewFiles) {
+      if (!file.archivo_ruta) continue;
+      const filePath = resolveReviewFilePath(file.archivo_ruta);
+      if (!filePath) {
+        console.error(`Se omitió la limpieza de una ruta inválida de anotaciones del envío ${id}.`);
+        continue;
+      }
+
+      try {
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (error) {
+        console.error(`No fue posible limpiar un archivo de anotaciones del envío ${id}:`, error);
       }
     }
 
