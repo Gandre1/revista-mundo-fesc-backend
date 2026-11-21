@@ -1,0 +1,20 @@
+CREATE TABLE `help_contents` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `title` varchar(255) NOT NULL,
+  `slug` varchar(180) NOT NULL,
+  `category` varchar(100) NOT NULL,
+  `content_type` varchar(20) NOT NULL,
+  `audience` varchar(20) NOT NULL DEFAULT 'general',
+  `content` longtext NOT NULL,
+  `display_order` int(11) NOT NULL DEFAULT 0,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `help_contents_slug_unique` (`slug`),
+  KEY `help_contents_public_list_idx` (`is_active`, `display_order`, `id`),
+  KEY `help_contents_type_audience_idx` (`content_type`, `audience`),
+  CONSTRAINT `help_contents_type_check` CHECK (`content_type` IN ('faq', 'guide', 'policy')),
+  CONSTRAINT `help_contents_audience_check` CHECK (`audience` IN ('general', 'author', 'reviewer', 'editor')),
+  CONSTRAINT `help_contents_order_check` CHECK (`display_order` >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

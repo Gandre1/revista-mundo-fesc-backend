@@ -154,7 +154,9 @@ El dictamen requiere una recomendación (`aceptar`, `revisiones_menores`, `revis
 
 Cada envío de dictamen queda como un registro histórico independiente, incluso si luego se actualiza o se retira la asignación. Los archivos de anotaciones se guardan fuera del directorio estático `uploads/` y no se mezclan con los adjuntos visibles al autor. Se admiten `.pdf`, `.doc` y `.docx` con máximo de 10 MB; los PDF se pueden visualizar en el navegador y Word se descarga. El acceso está limitado al revisor propietario del dictamen y al equipo editorial.
 
-Para bases existentes, aplica `database/migrations/013_add_reviewer_decisions.sql` y `database/migrations/014_add_reviewer_annotation_files.sql` en orden, después de crear `submission_reviews`.
+Para bases existentes, aplica `database/migrations/013_add_reviewer_decisions.sql`, `database/migrations/014_add_reviewer_annotation_files.sql` y `database/migrations/015_create_help_contents.sql` en orden, después de crear `submission_reviews`.
+
+El centro de ayuda está disponible en `/api/help`: las consultas públicas solo muestran contenido activo y permiten filtrar por `type`, `category` y `audience`. La gestión (listado completo, creación, actualización y eliminación) requiere un usuario `editor` o `admin`.
 
 ### Plantillas de correo
 
