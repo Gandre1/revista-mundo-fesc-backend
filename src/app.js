@@ -18,6 +18,7 @@ const exportRoutes = require('./routes/exportRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const auditRoutes = require('./routes/auditRoutes');
 const helpRoutes = require('./routes/helpRoutes');
+const searchRoutes = require('./routes/searchRoutes');
 const issueController = require('./controllers/issueController');
 const emailService = require('./services/emailService');
 
@@ -44,6 +45,7 @@ app.use('/api/email-templates', emailTemplateRoutes);
 app.use('/api/issues', issueRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api', exportRoutes);
+app.use('/api', searchRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/audit-logs', auditRoutes);
 app.use('/api/help', helpRoutes);

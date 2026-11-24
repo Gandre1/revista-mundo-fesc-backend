@@ -158,6 +158,10 @@ Para bases existentes, aplica `database/migrations/013_add_reviewer_decisions.sq
 
 El centro de ayuda está disponible en `/api/help`: las consultas públicas solo muestran contenido activo y permiten filtrar por `type`, `category` y `audience`. La gestión (listado completo, creación, actualización y eliminación) requiere un usuario `editor` o `admin`.
 
+### Búsqueda pública de artículos
+
+`GET /api/search` (también disponible en `/api/public/search`) busca artículos publicados en números públicos. Acepta `q` o `query` para buscar en título, resumen y palabras clave; `author` para filtrar nombre, correo o afiliación; y los filtros `volume`, `issue`, `section`, `year` y `doi`. `sort` admite `relevance` (predeterminado con texto de búsqueda), `recent` (predeterminado sin texto) o `title`. La paginación usa `page` (predeterminado `1`) y `limit` (predeterminado `20`, máximo `100`). La respuesta incluye `articles` y `pagination` (`page`, `limit`, `total`, `totalPages`); los filtros se pueden combinar.
+
 ### Plantillas de correo
 
 Todas estas rutas requieren autenticación y el rol `admin` o `editor`. Las plantillas se gestionan bajo `/api/email-templates`; `variables_disponibles` es una lista JSON de identificadores y, si se omite al crear o actualizar, se extrae de los marcadores `{{variable}}` del asunto y el cuerpo HTML.
