@@ -52,7 +52,8 @@ INSERT INTO `submissions` (`id`, `titulo`, `resumen`, `palabras_clave`, `seccion
 VALUES
   ('10000000-0000-4000-8000-000000000001', 'Impacto de la inteligencia artificial en la educación superior colombiana', 'Análisis de la integración de herramientas de inteligencia artificial en los procesos de enseñanza y aprendizaje de instituciones de educación superior en Colombia.', 'inteligencia artificial, educación superior, innovación pedagógica', 'Artículos de Investigación', 'es', 'enviado', 0, 5, '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', CURRENT_TIMESTAMP()),
   ('10000000-0000-4000-8000-000000000002', 'Uso de software libre para fortalecer la investigación universitaria', 'Estudio sobre la adopción de herramientas de código abierto y su contribución a la gestión de proyectos de investigación en universidades colombianas.', 'software libre, investigación, universidades', 'Artículos Originales', 'es', 'en_revision', 0, 5, '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', CURRENT_TIMESTAMP()),
-  ('10000000-0000-4000-8000-000000000003', 'Estrategias de innovación pedagógica en ambientes virtuales', 'Revisión de estrategias didácticas aplicadas en cursos universitarios virtuales y su relación con la participación estudiantil.', 'innovación pedagógica, educación virtual, aprendizaje', 'Investigación', 'es', 'Nuevo', 1, 2, '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad', NULL, NULL)
+  ('10000000-0000-4000-8000-000000000003', 'Estrategias de innovación pedagógica en ambientes virtuales', 'Revisión de estrategias didácticas aplicadas en cursos universitarios virtuales y su relación con la participación estudiantil.', 'innovación pedagógica, educación virtual, aprendizaje', 'Investigación', 'es', 'Nuevo', 1, 2, '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad', NULL, NULL),
+  ('10000000-0000-4000-8000-000000000004', 'Efectos de la transformación digital en las organizaciones', 'Estudio sobre los cambios organizacionales asociados con la adopción de tecnologías digitales y sus efectos en la productividad.', 'transformación digital, organizaciones, productividad', 'Artículos Originales', 'es', 'rechazado', 0, 5, '7d9cc614-f3d1-4d41-8ddf-17fe42ba05ad', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', CURRENT_TIMESTAMP())
 ON DUPLICATE KEY UPDATE
   `titulo` = VALUES(`titulo`),
   `resumen` = VALUES(`resumen`),
@@ -80,6 +81,14 @@ WHERE NOT EXISTS (
   SELECT 1 FROM `authors`
   WHERE `submission_id` = '10000000-0000-4000-8000-000000000002'
     AND `email` = 'santiago.mendoza@prueba.com'
+);
+
+INSERT INTO `authors` (`submission_id`, `nombre`, `apellidos`, `email`, `afiliacion`, `pais`, `es_corresponsal`, `orden`)
+SELECT '10000000-0000-4000-8000-000000000004', 'Valentina', 'Suárez Molina', 'valentina.suarez@prueba.com', 'Universidad FESC', 'Colombia', 0, 2
+WHERE NOT EXISTS (
+  SELECT 1 FROM `authors`
+  WHERE `submission_id` = '10000000-0000-4000-8000-000000000004'
+    AND `email` = 'valentina.suarez@prueba.com'
 );
 
 INSERT INTO `submission_reviews` (`submission_id`, `reviewer_id`, `fecha_limite`, `estado`)
