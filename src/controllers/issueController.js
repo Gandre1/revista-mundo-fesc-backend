@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const db = require('../config/db');
+const publicMetricsService = require('../services/publicMetricsService');
 
 const getPublicGalleyUrl = (req, submissionId, format) =>
   `${req.protocol}://${req.get('host')}/api/public/submissions/${encodeURIComponent(submissionId)}/galley/${format}`;
@@ -272,6 +273,7 @@ const servePublicGalley = async (req, res, format) => {
       return res.status(404).json({ message: 'La galera no está disponible en el servidor.' });
     }
 
+    await publicMetricsService.increment(submissionId, 'download');
     res.setHeader('Cache-Control', 'public, max-age=300');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     return format === 'pdf'
@@ -339,6 +341,7 @@ exports.getPublicSubmissionDetail = async (req, res) => {
     const automaticHtmlUrl = galleyFiles.some((file) =>
       String(file.tipo || '').toLowerCase() === 'galley-html'
     ) ? getPublicGalleyUrl(req, submissionId, 'html') : null;
+    await publicMetricsService.increment(submissionId, 'view');
     return res.status(200).json({
       article: {
         id: article.id,

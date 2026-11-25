@@ -154,13 +154,25 @@ El dictamen requiere una recomendación (`aceptar`, `revisiones_menores`, `revis
 
 Cada envío de dictamen queda como un registro histórico independiente, incluso si luego se actualiza o se retira la asignación. Los archivos de anotaciones se guardan fuera del directorio estático `uploads/` y no se mezclan con los adjuntos visibles al autor. Se admiten `.pdf`, `.doc` y `.docx` con máximo de 10 MB; los PDF se pueden visualizar en el navegador y Word se descarga. El acceso está limitado al revisor propietario del dictamen y al equipo editorial.
 
-Para bases existentes, aplica `database/migrations/013_add_reviewer_decisions.sql`, `database/migrations/014_add_reviewer_annotation_files.sql` y `database/migrations/015_create_help_contents.sql` en orden, después de crear `submission_reviews`.
+Para bases existentes, aplica `database/migrations/013_add_reviewer_decisions.sql`, `database/migrations/014_add_reviewer_annotation_files.sql`, `database/migrations/015_create_help_contents.sql` y `database/migrations/016_create_article_metrics.sql` en orden, después de crear `submission_reviews`.
 
 El centro de ayuda está disponible en `/api/help`: las consultas públicas solo muestran contenido activo y permiten filtrar por `type`, `category` y `audience`. La gestión (listado completo, creación, actualización y eliminación) requiere un usuario `editor` o `admin`.
 
 ### Búsqueda pública de artículos
 
 `GET /api/search` (también disponible en `/api/public/search`) busca artículos publicados en números públicos. Acepta `q` o `query` para buscar en título, resumen y palabras clave; `author` para filtrar nombre, correo o afiliación; y los filtros `volume`, `issue`, `section`, `year` y `doi`. `sort` admite `relevance` (predeterminado con texto de búsqueda), `recent` (predeterminado sin texto) o `title`. La paginación usa `page` (predeterminado `1`) y `limit` (predeterminado `20`, máximo `100`). La respuesta incluye `articles` y `pagination` (`page`, `limit`, `total`, `totalPages`); los filtros se pueden combinar.
+
+### Citas, exportación bibliográfica y métricas públicas
+
+Estos endpoints son públicos y solo reconocen artículos cuyo estado editorial sea publicado/aceptado y pertenezcan a un número público:
+
+| Método | Endpoint | Descripción |
+| ------ | -------- | ----------- |
+| GET | `/api/public/articles/:id/citation?style=apa` | Devuelve la cita en APA 7; `style` también admite `ieee` y por defecto es `apa` |
+| GET | `/api/public/articles/:id/citation/export?format=bibtex` | Descarga la referencia en BibTeX (`.bib`); `format=ris` descarga RIS (`.ris`) |
+| GET | `/api/public/articles/:id/metrics` | Consulta contadores públicos `views` y `downloads` |
+
+Las referencias usan nombres de autores en el orden registrado, título, *Revista Mundo FESC*, volumen, número, año y DOI cuando existe; en ausencia de DOI incluyen la URL pública del artículo. No se asignan páginas porque el esquema actual no almacena paginación. Un artículo no publicado devuelve `404`; un estilo o formato desconocido devuelve `400`. Las vistas incrementan al consultar el detalle público (`/api/public/submissions/:id`) y las descargas al servir cualquier galera PDF/HTML. Los contadores se almacenan en `article_metrics`; en bases existentes aplica la migración `016_create_article_metrics.sql`.
 
 ### Plantillas de correo
 
