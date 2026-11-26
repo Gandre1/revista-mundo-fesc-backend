@@ -15,6 +15,7 @@ router.get('/export/csv', analyticsController.exportCsv);
 router.get('/overview', analyticsController.getOverview);
 router.get('/editorial-times', analyticsController.getEditorialTimes);
 router.get('/issues-summary', analyticsController.getIssuesSummary);
+router.get('/views-summary', analyticsController.getViewsSummary);
 router.get('/reviewers', analyticsController.getReviewers);
 
 module.exports = router;

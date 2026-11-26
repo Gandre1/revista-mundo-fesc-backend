@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 
 async function getAccessibleFile(req, res, fileId) {
   const [files] = await db.query(
-    `SELECT sf.nombre_original, sf.ruta_almacenamiento, s.autor_id
+    `SELECT sf.nombre_original, sf.ruta_almacenamiento, s.id AS submission_id, s.autor_id
      FROM submission_files sf
      JOIN submissions s ON s.id = sf.submission_id
      WHERE sf.id = ?`,
@@ -18,8 +18,16 @@ async function getAccessibleFile(req, res, fileId) {
   }
 
   const file = files[0];
-  const editorialRoles = ['admin', 'editor', 'reviewer'];
-  if (file.autor_id !== req.user.id && !editorialRoles.includes(req.user.role)) {
+  const isEditorialUser = ['admin', 'editor'].includes(req.user.role);
+  let isAssignedReviewer = false;
+  if (req.user.role === 'reviewer') {
+    const [assignments] = await db.query(
+      'SELECT id FROM submission_reviews WHERE submission_id = ? AND reviewer_id = ?',
+      [file.submission_id, req.user.id]
+    );
+    isAssignedReviewer = assignments.length > 0;
+  }
+  if (file.autor_id !== req.user.id && !isEditorialUser && !isAssignedReviewer) {
     res.status(403).json({ message: 'No tienes permiso para acceder a este archivo.' });
     return null;
   }
@@ -122,7 +130,7 @@ exports.getFilesBySubmission = async (req, res) => {
 
   try {
     const [submissions] = await db.query(
-      'SELECT autor_id FROM submissions WHERE id = ?',
+      'SELECT id, autor_id FROM submissions WHERE id = ?',
       [submissionId]
     );
     if (submissions.length === 0) {
@@ -130,7 +138,15 @@ exports.getFilesBySubmission = async (req, res) => {
     }
 
     const isEditorialUser = ['admin', 'editor'].includes(req.user.role);
-    if (submissions[0].autor_id !== req.user.id && !isEditorialUser) {
+    let isAssignedReviewer = false;
+    if (req.user.role === 'reviewer') {
+      const [assignments] = await db.query(
+        'SELECT id FROM submission_reviews WHERE submission_id = ? AND reviewer_id = ?',
+        [submissionId, req.user.id]
+      );
+      isAssignedReviewer = assignments.length > 0;
+    }
+    if (submissions[0].autor_id !== req.user.id && !isEditorialUser && !isAssignedReviewer) {
       return res.status(404).json({ message: 'Envío no encontrado.' });
     }
 

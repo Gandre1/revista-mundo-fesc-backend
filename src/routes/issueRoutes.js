@@ -54,7 +54,7 @@ const requireEditorialRole = (req, res, next) => {
   next();
 };
 
-router.get('/', issueController.listIssues);
+router.get('/', authenticateToken, requireEditorialRole, issueController.listIssues);
 router.post('/', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Issue' }), issueController.createIssue);
 router.patch('/:id', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Issue' }), issueController.updateIssue);
 router.patch('/:id/cover', authenticateToken, requireEditorialRole, auditMiddleware({ targetModel: 'Issue' }), handleCoverUpload, issueController.uploadIssueCover);

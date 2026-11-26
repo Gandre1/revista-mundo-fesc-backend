@@ -30,6 +30,12 @@ const db = {
         { role: 'author', total: 8 },
       ]];
     }
+    if (normalizedSql.startsWith('select coalesce(nullif(trim(s.seccion)')) {
+      return [[
+        { section: 'Artículos Originales', total: 4 },
+        { section: 'Reflexión', total: 2 },
+      ]];
+    }
     if (normalizedSql.startsWith('select avg(timestampdiff')) {
       return [[{ average_days: 4.5 }]];
     }
@@ -64,6 +70,28 @@ const db = {
         published_at: '2026-10-01 09:00:00',
         articles_count: '7',
       }]];
+    }
+    if (normalizedSql.startsWith('select s.id as articleid, s.titulo as title')) {
+      return [[
+        {
+          articleId: 'article-1',
+          title: 'Artículo publicado',
+          volume: 2,
+          number: 1,
+          year: 2026,
+          views: '12',
+          downloads: '4',
+        },
+        {
+          articleId: 'article-2',
+          title: 'Artículo sin métricas',
+          volume: 2,
+          number: 1,
+          year: 2026,
+          views: '0',
+          downloads: '0',
+        },
+      ]];
     }
     throw new Error(`Consulta no contemplada en la prueba: ${normalizedSql}`);
   },
@@ -151,10 +179,11 @@ test('overview returns article totals, acceptance rate, and users by role', asyn
       rejected: 2,
       published: 2,
     },
+    articlesBySection: { 'Artículos Originales': 4, Reflexión: 2 },
     acceptanceRate: 66.67,
     usersByRole: { admin: 1, editor: 2, reviewer: 3, author: 8 },
   });
-  assert.equal(state.calls.length, 2);
+  assert.equal(state.calls.length, 3);
   assert.deepEqual(state.calls[0].values, []);
 });
 
@@ -181,12 +210,15 @@ test('CSV export includes analytics and editorial metrics, download headers, and
   assert.ok(response.body.startsWith('\uFEFF"Categoría","Métrica","Valor"'));
   assert.match(response.body, /"Resumen","Total de artículos","10"/);
   assert.match(response.body, /"Artículos por estado","published","2"/);
+  assert.match(response.body, /"Artículos por sección","Artículos Originales","4"/);
   assert.match(response.body, /"Resumen","Tasa de aceptación \(%\)","66\.67"/);
   assert.match(response.body, /"Métricas editoriales","Promedio de días hasta la decisión","4\.5"/);
   assert.match(response.body, /"Revisiones","Pendientes","2"/);
+  assert.match(response.body, /"Vistas","Vistas de artículos publicados","12"/);
+  assert.match(response.body, /"Vistas","Descargas de galeradas","4"/);
 
   const filteredQueries = state.calls.filter(({ sql }) => sql.includes('issue_id = ?') && sql.includes('seccion = ?'));
-  assert.equal(filteredQueries.length, 3);
+  assert.equal(filteredQueries.length, 5);
   assert.ok(filteredQueries.every(({ values }) => (
     values.includes('2026-01-01 00:00:00')
       && values.includes('2026-12-31 00:00:00')
@@ -214,11 +246,43 @@ test('issues summary includes published article counts and issue publication dat
   assert.equal(state.calls.length, 1);
 });
 
+test('views summary returns published article views and galley downloads', async () => {
+  state.calls = [];
+  const response = await get('/views-summary', 'admin');
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, {
+    totalViews: 12,
+    totalDownloads: 4,
+    articles: [
+      {
+        articleId: 'article-1',
+        title: 'Artículo publicado',
+        volume: 2,
+        number: 1,
+        year: 2026,
+        views: 12,
+        downloads: 4,
+      },
+      {
+        articleId: 'article-2',
+        title: 'Artículo sin métricas',
+        volume: 2,
+        number: 1,
+        year: 2026,
+        views: 0,
+        downloads: 0,
+      },
+    ],
+  });
+  assert.equal(state.calls.length, 1);
+});
+
 test('all analytics endpoints apply date, issue, and section filters with bound parameters', async () => {
   const filters = '?startDate=2026-01-01&endDate=2026-12-31&issueId=4&section=Art%C3%ADculos%20de%20Investigaci%C3%B3n';
   state.calls = [];
 
-  for (const endpoint of ['/overview', '/editorial-times', '/issues-summary', '/reviewers']) {
+  for (const endpoint of ['/overview', '/editorial-times', '/issues-summary', '/views-summary', '/reviewers']) {
     const response = await get(`${endpoint}${filters}`, 'editor');
     assert.equal(response.status, 200);
   }

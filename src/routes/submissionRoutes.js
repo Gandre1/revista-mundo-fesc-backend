@@ -43,6 +43,13 @@ const requireEditorialRole = (req, res, next) => {
   next();
 };
 
+const requireSubmissionCreator = (req, res, next) => {
+  if (!['admin', 'author'].includes(req.user.role)) {
+    return res.status(403).json({ message: 'Solo autores y administradores pueden crear envíos.' });
+  }
+  next();
+};
+
 const requireReviewerRole = (req, res, next) => {
   if (req.user.role !== 'reviewer') {
     return res.status(403).json({ message: 'No tienes permisos para gestionar dictámenes.' });
@@ -57,7 +64,7 @@ const requireReviewAttachmentRole = (req, res, next) => {
   next();
 };
 
-router.post('/', auditMiddleware({ targetModel: 'Submission' }), submissionController.createSubmission);
+router.post('/', requireSubmissionCreator, auditMiddleware({ targetModel: 'Submission' }), submissionController.createSubmission);
 router.get('/', requireEditorialRole, submissionController.getAllSubmissions);
 router.get('/stats', requireEditorialRole, submissionController.getSubmissionStats);
 router.get('/my-submissions', submissionController.getMySubmissions);

@@ -90,7 +90,7 @@ function buildSubmissionFilters(filters, alias = 's') {
 
 async function getOverviewData(filters) {
   const submissionFilters = buildSubmissionFilters(filters);
-  const [statusRows, userRows] = await Promise.all([
+  const [statusRows, userRows, sectionRows] = await Promise.all([
     db.query(
       `SELECT CASE
            WHEN LOWER(TRIM(s.estado)) IN ('enviado', 'submitted', 'recibido') THEN 'submitted'
@@ -116,6 +116,15 @@ async function getOverviewData(filters) {
          FROM users
          GROUP BY role`
     ),
+    db.query(
+      `SELECT COALESCE(NULLIF(TRIM(s.seccion), ''), 'Sin sección') AS section,
+              COUNT(*) AS total
+         FROM submissions s
+         WHERE 1 = 1${submissionFilters.sql}
+         GROUP BY section
+         ORDER BY total DESC, section ASC`,
+      submissionFilters.values
+    ),
   ]);
 
   const articlesByStatus = Object.fromEntries(ARTICLE_STATUSES.map((status) => [status, 0]));
@@ -130,13 +139,18 @@ async function getOverviewData(filters) {
     usersByRole[row.role] = normalizeCount(row.total);
   }
 
+  const articlesBySection = {};
+  for (const row of sectionRows[0]) {
+    articlesBySection[row.section] = normalizeCount(row.total);
+  }
+
   const totalArticles = Object.values(articlesByStatus).reduce((total, count) => total + count, 0);
   const decidedArticles = articlesByStatus.accepted + articlesByStatus.published + articlesByStatus.rejected;
   const acceptanceRate = decidedArticles
     ? roundToTwoDecimals(((articlesByStatus.accepted + articlesByStatus.published) / decidedArticles) * 100)
     : 0;
 
-  return { totalArticles, articlesByStatus, acceptanceRate, usersByRole };
+  return { totalArticles, articlesByStatus, articlesBySection, acceptanceRate, usersByRole };
 }
 
 async function getEditorialTimesData(filters) {
@@ -194,6 +208,33 @@ async function getEditorialTimesData(filters) {
   };
 }
 
+async function getViewsSummaryData(filters) {
+  const submissionFilters = buildSubmissionFilters(filters);
+  const [articles] = await db.query(
+    `SELECT s.id AS articleId, s.titulo AS title,
+            i.volume, i.number, i.year,
+            COALESCE(m.views, 0) AS views,
+            COALESCE(m.downloads, 0) AS downloads
+     FROM submissions s
+     INNER JOIN issues i ON i.id = s.issue_id
+     LEFT JOIN article_metrics m ON m.submission_id = s.id
+     WHERE i.status = 'published'
+       AND LOWER(TRIM(s.estado)) IN ('publicado', 'published')${submissionFilters.sql}
+     ORDER BY views DESC, downloads DESC, s.titulo ASC`,
+    submissionFilters.values
+  );
+  const normalizedArticles = articles.map((article) => ({
+    ...article,
+    views: normalizeCount(article.views),
+    downloads: normalizeCount(article.downloads),
+  }));
+  return {
+    totalViews: normalizedArticles.reduce((total, article) => total + article.views, 0),
+    totalDownloads: normalizedArticles.reduce((total, article) => total + article.downloads, 0),
+    articles: normalizedArticles,
+  };
+}
+
 exports.getOverview = async (req, res) => {
   const filters = getFilters(req, res);
   if (!filters) return;
@@ -229,14 +270,16 @@ exports.exportCsv = async (req, res) => {
   if (!filters) return;
 
   try {
-    const [overview, editorialTimes] = await Promise.all([
+    const [overview, editorialTimes, viewsSummary] = await Promise.all([
       getOverviewData(filters),
       getEditorialTimesData(filters),
+      getViewsSummaryData(filters),
     ]);
     const rows = [
       ['Categoría', 'Métrica', 'Valor'],
       ['Resumen', 'Total de artículos', overview.totalArticles],
       ...ARTICLE_STATUSES.map((status) => ['Artículos por estado', status, overview.articlesByStatus[status]]),
+      ...Object.entries(overview.articlesBySection).map(([section, total]) => ['Artículos por sección', section, total]),
       ['Resumen', 'Tasa de aceptación (%)', overview.acceptanceRate],
       ...Object.entries(overview.usersByRole).map(([role, total]) => ['Usuarios por rol', role, total]),
       ['Métricas editoriales', 'Promedio de días hasta la decisión', editorialTimes.averageDecisionDays],
@@ -244,6 +287,8 @@ exports.exportCsv = async (req, res) => {
       ['Revisiones', 'Completadas', editorialTimes.reviews.completed],
       ['Revisiones', 'Pendientes', editorialTimes.reviews.pending],
       ['Revisiones', 'Tasa de finalización (%)', editorialTimes.reviews.completionRate],
+      ['Vistas', 'Vistas de artículos publicados', viewsSummary.totalViews],
+      ['Vistas', 'Descargas de galeradas', viewsSummary.totalDownloads],
     ];
     const csv = `\uFEFF${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}`;
 
@@ -285,6 +330,18 @@ exports.getIssuesSummary = async (req, res) => {
   } catch (error) {
     console.error('Error al consultar el resumen de números publicados:', error);
     return res.status(500).json({ message: 'Error interno al consultar el resumen de números publicados.' });
+  }
+};
+
+exports.getViewsSummary = async (req, res) => {
+  const filters = getFilters(req, res);
+  if (!filters) return;
+
+  try {
+    return res.json(await getViewsSummaryData(filters));
+  } catch (error) {
+    console.error('Error al consultar las vistas y descargas de artículos:', error);
+    return res.status(500).json({ message: 'Error interno al consultar las métricas de vistas.' });
   }
 };
 

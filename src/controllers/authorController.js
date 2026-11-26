@@ -1,5 +1,23 @@
 const db = require('../config/db');
 
+async function canManageSubmissionAuthors(submissionId, req, res) {
+  const [submissions] = await db.query(
+    'SELECT autor_id FROM submissions WHERE id = ?',
+    [submissionId]
+  );
+  if (!submissions.length) {
+    res.status(404).json({ message: 'Envío no encontrado.' });
+    return false;
+  }
+
+  const isEditorialUser = ['admin', 'editor'].includes(req.user?.role);
+  if (submissions[0].autor_id !== req.user?.id && !isEditorialUser) {
+    res.status(404).json({ message: 'Envío no encontrado.' });
+    return false;
+  }
+  return true;
+}
+
 exports.addAuthor = async (req, res) => {
   const { submission_id, nombre, apellidos, email, afiliacion, pais, orcid, es_corresponsal, orden } = req.body;
 
@@ -8,6 +26,8 @@ exports.addAuthor = async (req, res) => {
   }
 
   try {
+    if (!await canManageSubmissionAuthors(submission_id, req, res)) return;
+
     const [result] = await db.query(
       `INSERT INTO authors (submission_id, nombre, apellidos, email, afiliacion, pais, orcid, es_corresponsal, orden)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -52,6 +72,8 @@ exports.getAuthorsBySubmission = async (req, res) => {
   const { submissionId } = req.params;
 
   try {
+    if (!await canManageSubmissionAuthors(submissionId, req, res)) return;
+
     const [authors] = await db.query(
       'SELECT * FROM authors WHERE submission_id = ? ORDER BY orden ASC',
       [submissionId]
@@ -68,6 +90,22 @@ exports.deleteAuthor = async (req, res) => {
   const { id } = req.params;
 
   try {
+    const [authors] = await db.query(
+      `SELECT a.submission_id, s.autor_id
+       FROM authors a
+       INNER JOIN submissions s ON s.id = a.submission_id
+       WHERE a.id = ?`,
+      [id]
+    );
+    if (!authors.length) {
+      return res.status(404).json({ message: 'No se encontró el colaborador en la base de datos.' });
+    }
+
+    const isEditorialUser = ['admin', 'editor'].includes(req.user?.role);
+    if (authors[0].autor_id !== req.user?.id && !isEditorialUser) {
+      return res.status(404).json({ message: 'No se encontró el colaborador en la base de datos.' });
+    }
+
     const [result] = await db.query('DELETE FROM authors WHERE id = ?', [id]);
 
     if (result.affectedRows === 0) {
