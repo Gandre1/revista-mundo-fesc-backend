@@ -154,7 +154,7 @@ El dictamen requiere una recomendación (`aceptar`, `revisiones_menores`, `revis
 
 Cada envío de dictamen queda como un registro histórico independiente, incluso si luego se actualiza o se retira la asignación. Los archivos de anotaciones se guardan fuera del directorio estático `uploads/` y no se mezclan con los adjuntos visibles al autor. Se admiten `.pdf`, `.doc` y `.docx` con máximo de 10 MB; los PDF se pueden visualizar en el navegador y Word se descarga. El acceso está limitado al revisor propietario del dictamen y al equipo editorial.
 
-Para bases existentes, aplica `database/migrations/013_add_reviewer_decisions.sql`, `database/migrations/014_add_reviewer_annotation_files.sql`, `database/migrations/015_create_help_contents.sql` y `database/migrations/016_create_article_metrics.sql` en orden, después de crear `submission_reviews`.
+Para bases existentes, aplica `database/migrations/013_add_reviewer_decisions.sql`, `database/migrations/014_add_reviewer_annotation_files.sql`, `database/migrations/015_create_help_contents.sql`, `database/migrations/016_create_article_metrics.sql` y `database/migrations/017_create_messages.sql` en orden, después de crear `submission_reviews`.
 
 El centro de ayuda está disponible en `/api/help`: las consultas públicas solo muestran contenido activo y permiten filtrar por `type`, `category` y `audience`. La gestión (listado completo, creación, actualización y eliminación) requiere un usuario `editor` o `admin`.
 
@@ -188,6 +188,22 @@ Todas estas rutas requieren autenticación y el rol `admin` o `editor`. Las plan
 Ejemplo de marcadores admitidos: `{{nombre_autor}}`, `{{titulo_articulo}}` y `{{rol}}`. La respuesta expone `variables_disponibles` como una lista.
 
 Las decisiones aceptada, rechazada y cambios solicitados envían, al cambiar realmente el estado, las plantillas `submission_accepted`, `submission_rejected` y `submission_changes_requested` al correo del autor. Asignar un evaluador envía `reviewer_assigned` al evaluador. Las plantillas incluyen además `{{estado}}`, `{{comentarios_editor}}`, `{{submission_id}}`, `{{nombre_revisor}}` y `{{fecha_limite}}` según corresponda. Si falta SMTP, una plantilla o una variable, el error queda registrado en el backend y no revierte la acción editorial ya guardada.
+
+### Mensajería interna
+
+Las rutas de mensajería requieren autenticación JWT. Los mensajes se guardan en MySQL y cada cuenta solo puede consultar mensajes en los que participa; además, puede consultar mensajes asociados a envíos a los que tiene acceso por rol (autor propietario, revisor asignado, editor o administrador). Solo el destinatario puede marcar un mensaje como leído. El borrado se aplica por participante y no elimina el mensaje de la otra persona.
+
+| Método | Endpoint | Descripción |
+| ------ | -------- | ----------- |
+| GET | `/api/messages` | Lista mensajes accesibles para el usuario autenticado, del más reciente al más antiguo |
+| GET | `/api/messages/recipients` | Lista usuarios disponibles como destinatarios, excepto el usuario autenticado |
+| GET | `/api/messages/conversation/:userId` | Obtiene los mensajes de la conversación 1:1 con el usuario indicado |
+| GET | `/api/messages/:id` | Obtiene el detalle de un mensaje si el usuario participa o tiene acceso al envío asociado |
+| POST | `/api/messages` | Envía un mensaje JSON: `{"recipientId":"<id>","subject":"Asunto","body":"Contenido","submissionId":"<id opcional>"}` |
+| PATCH | `/api/messages/:id/read` | Marca el mensaje como leído (solo su destinatario) |
+| DELETE | `/api/messages/:id` | Oculta el mensaje para el participante autenticado |
+
+Un ID de envío incluido al enviar debe corresponder a un envío accesible para el remitente. El endpoint de lectura y los intentos de consultar, enviar o eliminar fuera del alcance autorizado responden `403`. En instalaciones existentes aplica `database/migrations/017_create_messages.sql`; el esquema nuevo también crea la tabla `messages`.
 
 ### Analíticas editoriales
 
